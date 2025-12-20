@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Express + Guacd-TS Example</title>
+    <script src="https://cdn.jsdelivr.net/npm/guacamole-common-js@1.5.4/all.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      .header {
+        background: white;
+        padding: 20px 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+      }
+      .header h1 {
+        color: #333;
+        font-size: 28px;
+        margin-bottom: 5px;
+      }
+      .header p {
+        color: #666;
+        font-size: 14px;
+      }
+      .main {
+        display: grid;
+        grid-template-columns: 400px 1fr;
+        gap: 20px;
+      }
+      .panel {
+        background: white;
+        padding: 25px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+      .form-group {
+        margin-bottom: 18px;
+      }
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 600;
+        color: #444;
+        font-size: 14px;
+      }
+      input,
+      select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      input:focus,
+      select:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+      .btn {
+        width: 100%;
+        padding: 12px;
+        border: none;
+        border-radius: 6px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-bottom: 10px;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+      }
+      .btn-danger {
+        background: #f44336;
+        color: white;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #display {
+        width: 100%;
+        height: 700px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #000;
+        position: relative;
+      }
+      .status {
+        padding: 12px 16px;
+        margin-top: 15px;
+        border-radius: 6px;
+        font-size: 14px;
+        display: none;
+        border-left: 4px solid;
+      }
+      .status.show {
+        display: block;
+      }
+      .status.info {
+        background: #e3f2fd;
+        color: #1976d2;
+        border-left-color: #1976d2;
+      }
+      .status.error {
+        background: #ffebee;
+        color: #c62828;
+        border-left-color: #c62828;
+      }
+      .status.success {
+        background: #e8f5e9;
+        color: #2e7d32;
+        border-left-color: #2e7d32;
+      }
+      .protocol-fields {
+        display: none;
+      }
+      .protocol-fields.active {
+        display: block;
+      }
+      .stats {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f5f5f5;
+        border-radius: 6px;
+        font-size: 13px;
+      }
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+      .placeholder {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        color: #888;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🚀 Express + Guacd-TS</h1>
+        <p>Type-safe remote desktop connections with Protocol Builders</p>
+      </div>
+
+      <div class="main">
+        <div class="panel">
+          <h2 style="margin-bottom: 20px; color: #333">Connection Settings</h2>
+
+          <div class="form-group">
+            <label>Protocol</label>
+            <select id="protocol" onchange="switchProtocol()">
+              <option value="rdp">RDP</option>
+              <option value="vnc">VNC</option>
+              <option value="ssh">SSH</option>
+            </select>
+          </div>
+
+          <div id="rdp-fields" class="protocol-fields active">
+            <div class="form-group">
+              <label>Hostname *</label>
+              <input type="text" id="rdp-hostname" value="192.168.1.100" />
+            </div>
+            <div class="form-group">
+              <label>Port</label>
+              <input type="number" id="rdp-port" value="3389" />
+            </div>
+            <div class="form-group">
+              <label>Username</label>
+              <input type="text" id="rdp-username" value="Administrator" />
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="rdp-password" />
+            </div>
+            <div class="form-group">
+              <label>Domain</label>
+              <input type="text" id="rdp-domain" placeholder="Optional" />
+            </div>
+          </div>
+
+          <div id="vnc-fields" class="protocol-fields">
+            <div class="form-group">
+              <label>Hostname *</label>
+              <input type="text" id="vnc-hostname" value="192.168.1.100" />
+            </div>
+            <div class="form-group">
+              <label>Port</label>
+              <input type="number" id="vnc-port" value="5900" />
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="vnc-password" />
+            </div>
+          </div>
+
+          <div id="ssh-fields" class="protocol-fields">
+            <div class="form-group">
+              <label>Hostname *</label>
+              <input type="text" id="ssh-hostname" value="192.168.1.100" />
+            </div>
+            <div class="form-group">
+              <label>Port</label>
+              <input type="number" id="ssh-port" value="22" />
+            </div>
+            <div class="form-group">
+              <label>Username</label>
+              <input type="text" id="ssh-username" value="root" />
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="ssh-password" />
+            </div>
+          </div>
+
+          <button class="btn btn-primary" onclick="connect()" id="connectBtn">Connect</button>
+          <button class="btn btn-danger" onclick="disconnect()" id="disconnectBtn" disabled>
+            Disconnect
+          </button>
+
+          <div id="status" class="status"></div>
+
+          <div class="stats">
+            <div class="stat-row">
+              <span>Active Connections:</span>
+              <strong id="activeConnections">0</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2 style="margin-bottom: 15px; color: #333">Remote Display</h2>
+          <div id="display">
+            <div class="placeholder">
+              <div style="font-size: 48px; margin-bottom: 10px">🖥️</div>
+              <div>Click Connect to start</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let client = null;
+      let tunnel = null;
+
+      function switchProtocol() {
+        const protocol = document.getElementById('protocol').value;
+        document
+          .querySelectorAll('.protocol-fields')
+          .forEach((el) => el.classList.remove('active'));
+        document.getElementById(protocol + '-fields').classList.add('active');
+      }
+
+      function showStatus(msg, type = 'info') {
+        const status = document.getElementById('status');
+        status.textContent = msg;
+        status.className = 'status show ' + type;
+      }
+
+      async function updateStats() {
+        try {
+          const res = await fetch('/api/stats');
+          const data = await res.json();
+          document.getElementById('activeConnections').textContent = data.activeConnections;
+        } catch (e) {}
+      }
+
+      async function connect() {
+        const protocol = document.getElementById('protocol').value;
+        const params = { protocol };
+
+        if (protocol === 'rdp') {
+          params.hostname = document.getElementById('rdp-hostname').value;
+          params.port = parseInt(document.getElementById('rdp-port').value);
+          params.username = document.getElementById('rdp-username').value;
+          params.password = document.getElementById('rdp-password').value;
+          params.domain = document.getElementById('rdp-domain').value;
+        } else if (protocol === 'vnc') {
+          params.hostname = document.getElementById('vnc-hostname').value;
+          params.port = parseInt(document.getElementById('vnc-port').value);
+          params.password = document.getElementById('vnc-password').value;
+        } else if (protocol === 'ssh') {
+          params.hostname = document.getElementById('ssh-hostname').value;
+          params.port = parseInt(document.getElementById('ssh-port').value);
+          params.username = document.getElementById('ssh-username').value;
+          params.password = document.getElementById('ssh-password').value;
+        }
+
+        try {
+          showStatus('Generating token...', 'info');
+          document.getElementById('connectBtn').disabled = true;
+
+          const res = await fetch('/api/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params),
+          });
+
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed');
+
+          showStatus('Connecting...', 'info');
+
+          const display = document.getElementById('display');
+          display.innerHTML = '';
+
+          tunnel = new Guacamole.WebSocketTunnel(data.wsUrl);
+          client = new Guacamole.Client(tunnel);
+          display.appendChild(client.getDisplay().getElement());
+
+          tunnel.onstatechange = (state) => {
+            if (state === Guacamole.Tunnel.State.OPEN) {
+              showStatus('Connected!', 'success');
+              document.getElementById('disconnectBtn').disabled = false;
+              updateStats();
+            } else if (state === Guacamole.Tunnel.State.CLOSED) {
+              showStatus('Disconnected', 'info');
+              document.getElementById('connectBtn').disabled = false;
+              document.getElementById('disconnectBtn').disabled = true;
+              updateStats();
+            }
+          };
+
+          client.onerror = (error) => {
+            showStatus('Error: ' + error.message, 'error');
+          };
+
+          client.connect();
+
+          const keyboard = new Guacamole.Keyboard(document);
+          keyboard.onkeydown = (k) => client.sendKeyEvent(1, k);
+          keyboard.onkeyup = (k) => client.sendKeyEvent(0, k);
+
+          const mouse = new Guacamole.Mouse(client.getDisplay().getElement());
+          mouse.onmousedown =
+            mouse.onmouseup =
+            mouse.onmousemove =
+              (m) => {
+                client.sendMouseState(m);
+              };
+        } catch (error) {
+          showStatus('Error: ' + error.message, 'error');
+          document.getElementById('connectBtn').disabled = false;
+        }
+      }
+
+      function disconnect() {
+        if (client) client.disconnect();
+        if (tunnel) tunnel.disconnect();
+        document.getElementById('display').innerHTML =
+          '<div class="placeholder"><div style="font-size: 48px; margin-bottom: 10px;">🖥️</div><div>Click Connect to start</div></div>';
+        showStatus('Disconnected', 'info');
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('disconnectBtn').disabled = true;
+      }
+
+      setInterval(updateStats, 5000);
+      updateStats();
+    </script>
+  </body>
+</html>

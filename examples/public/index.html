@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Guacd-TS Test Interface</title>
+    <script src="https://cdn.jsdelivr.net/npm/guacamole-common-js@1.5.4/all.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+      }
+      h1 {
+        color: #333;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #555;
+      }
+      input,
+      select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+      }
+      button {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        margin-right: 10px;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      button.disconnect {
+        background-color: #f44336;
+      }
+      button.disconnect:hover {
+        background-color: #da190b;
+      }
+      #display {
+        width: 100%;
+        height: 600px;
+        border: 2px solid #ddd;
+        border-radius: 4px;
+        overflow: hidden;
+        background-color: #000;
+      }
+      .status {
+        padding: 10px;
+        margin-top: 10px;
+        border-radius: 4px;
+        display: none;
+      }
+      .status.info {
+        background-color: #e3f2fd;
+        color: #1976d2;
+        display: block;
+      }
+      .status.error {
+        background-color: #ffebee;
+        color: #c62828;
+        display: block;
+      }
+      .status.success {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+        display: block;
+      }
+      .protocol-settings {
+        display: none;
+      }
+      .protocol-settings.active {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Guacd-TS Test Interface</h1>
+
+      <div class="form-group">
+        <label for="protocol">Protocol:</label>
+        <select id="protocol" onchange="changeProtocol()">
+          <option value="rdp">RDP</option>
+          <option value="vnc">VNC</option>
+          <option value="ssh">SSH</option>
+        </select>
+      </div>
+
+      <!-- RDP Settings -->
+      <div id="rdp-settings" class="protocol-settings active">
+        <div class="form-group">
+          <label for="rdp-hostname">Hostname:</label>
+          <input type="text" id="rdp-hostname" value="192.168.1.100" />
+        </div>
+        <div class="form-group">
+          <label for="rdp-port">Port:</label>
+          <input type="number" id="rdp-port" value="3389" />
+        </div>
+        <div class="form-group">
+          <label for="rdp-username">Username:</label>
+          <input type="text" id="rdp-username" value="Administrator" />
+        </div>
+        <div class="form-group">
+          <label for="rdp-password">Password:</label>
+          <input type="password" id="rdp-password" value="" />
+        </div>
+      </div>
+
+      <!-- VNC Settings -->
+      <div id="vnc-settings" class="protocol-settings">
+        <div class="form-group">
+          <label for="vnc-hostname">Hostname:</label>
+          <input type="text" id="vnc-hostname" value="192.168.1.100" />
+        </div>
+        <div class="form-group">
+          <label for="vnc-port">Port:</label>
+          <input type="number" id="vnc-port" value="5900" />
+        </div>
+        <div class="form-group">
+          <label for="vnc-password">Password:</label>
+          <input type="password" id="vnc-password" value="" />
+        </div>
+      </div>
+
+      <!-- SSH Settings -->
+      <div id="ssh-settings" class="protocol-settings">
+        <div class="form-group">
+          <label for="ssh-hostname">Hostname:</label>
+          <input type="text" id="ssh-hostname" value="192.168.1.100" />
+        </div>
+        <div class="form-group">
+          <label for="ssh-port">Port:</label>
+          <input type="number" id="ssh-port" value="22" />
+        </div>
+        <div class="form-group">
+          <label for="ssh-username">Username:</label>
+          <input type="text" id="ssh-username" value="root" />
+        </div>
+        <div class="form-group">
+          <label for="ssh-password">Password:</label>
+          <input type="password" id="ssh-password" value="" />
+        </div>
+      </div>
+
+      <button onclick="connect()">Connect</button>
+      <button class="disconnect" onclick="disconnect()">Disconnect</button>
+
+      <div id="status" class="status"></div>
+    </div>
+
+    <div class="container">
+      <div id="display"></div>
+    </div>
+
+    <script>
+      let client = null;
+      let tunnel = null;
+
+      function changeProtocol() {
+        const protocol = document.getElementById('protocol').value;
+        document.querySelectorAll('.protocol-settings').forEach((el) => {
+          el.classList.remove('active');
+        });
+        document.getElementById(`${protocol}-settings`).classList.add('active');
+      }
+
+      function showStatus(message, type = 'info') {
+        const statusEl = document.getElementById('status');
+        statusEl.textContent = message;
+        statusEl.className = `status ${type}`;
+      }
+
+      async function connect() {
+        const protocol = document.getElementById('protocol').value;
+        let settings = {};
+
+        if (protocol === 'rdp') {
+          settings = {
+            hostname: document.getElementById('rdp-hostname').value,
+            port: parseInt(document.getElementById('rdp-port').value),
+            username: document.getElementById('rdp-username').value,
+            password: document.getElementById('rdp-password').value,
+            'ignore-cert': true,
+            security: 'any',
+          };
+        } else if (protocol === 'vnc') {
+          settings = {
+            hostname: document.getElementById('vnc-hostname').value,
+            port: parseInt(document.getElementById('vnc-port').value),
+            password: document.getElementById('vnc-password').value,
+          };
+        } else if (protocol === 'ssh') {
+          settings = {
+            hostname: document.getElementById('ssh-hostname').value,
+            port: parseInt(document.getElementById('ssh-port').value),
+            username: document.getElementById('ssh-username').value,
+            password: document.getElementById('ssh-password').value,
+          };
+        }
+
+        try {
+          showStatus('Generating token...', 'info');
+
+          const response = await fetch('/api/generate-token', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              type: protocol,
+              settings: settings,
+            }),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to generate token');
+          }
+
+          showStatus('Connecting...', 'info');
+
+          // Create Guacamole client
+          const display = document.getElementById('display');
+          display.innerHTML = '';
+
+          tunnel = new Guacamole.WebSocketTunnel(
+            'ws://localhost:8080/?token=' + encodeURIComponent(data.token)
+          );
+          client = new Guacamole.Client(tunnel);
+
+          display.appendChild(client.getDisplay().getElement());
+
+          client.onerror = function (error) {
+            showStatus('Error: ' + error.message, 'error');
+          };
+
+          tunnel.onerror = function (error) {
+            showStatus('Tunnel error: ' + error.message, 'error');
+          };
+
+          tunnel.onstatechange = function (state) {
+            if (state === Guacamole.Tunnel.State.OPEN) {
+              showStatus('Connected successfully!', 'success');
+            } else if (state === Guacamole.Tunnel.State.CLOSED) {
+              showStatus('Disconnected', 'info');
+            }
+          };
+
+          client.connect();
+
+          // Handle keyboard and mouse
+          const keyboard = new Guacamole.Keyboard(document);
+          keyboard.onkeydown = function (keysym) {
+            client.sendKeyEvent(1, keysym);
+          };
+          keyboard.onkeyup = function (keysym) {
+            client.sendKeyEvent(0, keysym);
+          };
+
+          const mouse = new Guacamole.Mouse(client.getDisplay().getElement());
+          mouse.onmousedown =
+            mouse.onmouseup =
+            mouse.onmousemove =
+              function (mouseState) {
+                client.sendMouseState(mouseState);
+              };
+        } catch (error) {
+          showStatus('Error: ' + error.message, 'error');
+        }
+      }
+
+      function disconnect() {
+        if (client) {
+          client.disconnect();
+          client = null;
+        }
+        if (tunnel) {
+          tunnel.disconnect();
+          tunnel = null;
+        }
+        showStatus('Disconnected', 'info');
+      }
+    </script>
+  </body>
+</html>
