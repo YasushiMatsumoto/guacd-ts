@@ -74,7 +74,7 @@ export interface ClientOptions {
     stdLog?: (message: string) => void;
     errorLog?: (message: string) => void;
   };
-  crypt: CryptConfig;
+  crypt?: CryptConfig;
   connectionDefaultSettings?: DefaultConnectionSettings;
   allowedUnencryptedConnectionSettings?: string[];
 }
@@ -104,6 +104,9 @@ export interface SessionData {
   guacdPort: number;
   connectionInfo: ConnectionSettings;
   createdAt: string;
+  expiresAt?: string;
+  guacamoleConnectionId?: string;
+  sessionId?: string;
   joinedConnections: JoinedConnectionInfo[];
 }
 
@@ -180,6 +183,7 @@ export enum GuacamoleErrorCode {
   AUTHENTICATION_FAILED = 'AUTHENTICATION_FAILED',
   RESOURCE_NOT_FOUND = 'RESOURCE_NOT_FOUND',
   INVALID_TOKEN = 'INVALID_TOKEN',
+  INVALID_SESSION = 'INVALID_SESSION',
 }
 
 /**

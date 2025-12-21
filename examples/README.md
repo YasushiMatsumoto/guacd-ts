@@ -1,6 +1,6 @@
 # Guacd-TS Examples
 
-Complete examples demonstrating various integration patterns with guacd-ts.
+Complete examples demonstrating various integration patterns with guacd-ts. The recommended flow is now session-ID based (`issueSession` on the server, client connects with `sessionId`), while token generation in some examples is kept for legacy compatibility.
 
 ## 📁 Available Examples
 
@@ -138,7 +138,7 @@ All examples require:
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/yourusername/guacd-ts.git
+   git clone https://github.com/YasushiMatsumoto/guacd-ts.git
    cd guacd-ts
    ```
 
@@ -246,8 +246,8 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
 ## Support
 
 - 📖 [Main Documentation](../README.md)
-- 🐛 [Issue Tracker](https://github.com/yourusername/guacd-ts/issues)
-- 💬 [Discussions](https://github.com/yourusername/guacd-ts/discussions)
+- 🐛 [Issue Tracker](https://github.com/YasushiMatsumoto/guacd-ts/issues)
+- 💬 [Discussions](https://github.com/YasushiMatsumoto/guacd-ts/discussions)
 
 ## License
 

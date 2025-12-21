@@ -8,14 +8,14 @@ Production-ready TypeScript library for bridging WebSocket connections to Apache
 
 ## Features
 
-✅ **TypeScript First** - Full type safety with comprehensive type definitions  
-✅ **Production Ready** - Built for enterprise use with security and maintainability in mind  
-✅ **Flexible Integration** - Works standalone or with Express/Fastify  
-✅ **Session Management** - Built-in session tracking with pluggable storage (Redis, etc.)  
-✅ **Security Focused** - Token encryption, cookie validation, connection authentication  
-✅ **Event-Driven** - Hooks for connection lifecycle (before connect, after disconnect)  
-✅ **Well Tested** - Comprehensive test suite with Jest  
-✅ **Protocol Support** - RDP, VNC, SSH, Telnet
+- **TypeScript First** - Full type safety with comprehensive type definitions  
+- **Production Ready** - Built for enterprise use with security and maintainability in mind  
+- **Flexible Integration** - Works standalone or with Express/Fastify  
+- **Session Management** - Built-in session issuance (session ID + TTL) with pluggable storage (Redis, etc.)  
+- **Security Focused** - Server-side stored session data, optional token compatibility, cookie validation, connection authentication  
+- **Event-Driven** - Hooks for connection lifecycle (before connect, after disconnect)  
+- **Well Tested** - Comprehensive test suite with Jest  
+- **Protocol Support** - RDP, VNC, SSH, Telnet
 
 ## Installation
 
@@ -33,15 +33,16 @@ docker run -d -p 4822:4822 guacamole/guacd
 
 ## Quick Start
 
-### Standalone Server
+### Standalone Server (session ID flow)
 
 ```typescript
-import { GuacdServer, Crypt } from 'guacd-ts';
+import { GuacdServer } from 'guacd-ts';
 
 const server = new GuacdServer(
   { port: 8080 },
   { host: '127.0.0.1', port: 4822 },
   {
+    // crypt remains available for legacy token flow; not required for session IDs
     crypt: {
       cypher: 'AES-256-CBC',
       key: 'MySuperSecretKeyForParamsToken12', // 32 bytes
@@ -49,21 +50,20 @@ const server = new GuacdServer(
   }
 );
 
-// Generate connection token
-const crypt = new Crypt('AES-256-CBC', 'MySuperSecretKeyForParamsToken12');
-const token = crypt.encrypt({
-  connection: {
-    type: 'rdp',
-    settings: {
-      hostname: '192.168.1.100',
-      username: 'Administrator',
-      password: 'password',
-      'ignore-cert': true,
-    },
+// Issue a session ID and store connection info server-side
+const sessionId = await server.issueSession({
+  type: 'rdp',
+  settings: {
+    hostname: '192.168.1.100',
+    username: 'Administrator',
+    password: 'password',
+    port: 3389,
+    'ignore-cert': true,
   },
 });
 
-console.log(`ws://localhost:8080/?token=${encodeURIComponent(token)}`);
+// Client connects with the issued sessionId
+console.log(`ws://localhost:8080/?sessionId=${encodeURIComponent(sessionId)}`);
 ```
 
 ### Express Integration
@@ -80,6 +80,7 @@ const guacdServer = new GuacdServer(
   { server: httpServer },
   { host: '127.0.0.1', port: 4822 },
   {
+    // crypt only needed for legacy token-based clients
     crypt: {
       cypher: 'AES-256-CBC',
       key: 'MySuperSecretKeyForParamsToken12',
@@ -102,6 +103,7 @@ const guacdServer = new GuacdServer(
   { server: fastify.server },
   { host: '127.0.0.1', port: 4822 },
   {
+    // crypt only needed for legacy token-based clients
     crypt: {
       cypher: 'AES-256-CBC',
       key: 'MySuperSecretKeyForParamsToken12',
@@ -113,6 +115,27 @@ await fastify.listen({ port: 3000 });
 ```
 
 ## Advanced Features
+
+### Session Issuance API
+
+```typescript
+// Service issues a session and hands sessionId to the client
+const sessionId = await server.issueSession(
+  {
+    type: 'rdp',
+    settings: {
+      hostname: '192.168.1.100',
+      username: 'Administrator',
+      password: 'password',
+      'ignore-cert': true,
+    },
+  },
+  10 * 60 * 1000, // TTL (ms)
+  { host: '127.0.0.1', port: 4822 } // optional guacd target override
+);
+```
+
+Clients connect via `?sessionId=<issued id>` (or `Authorization: Bearer <id>` / `X-Session-Id` header). The server loads the stored settings and starts the guacd bridge. The legacy `token` parameter encrypted via `Crypt` remains available for backward compatibility but is no longer required.
 
 ### Cookie Validation (Before Connect)
 
@@ -199,30 +222,28 @@ const server = new GuacdServer(
 ### Dynamic Guacd Routing
 
 ```typescript
-// Route connections to different guacd instances
-const token = crypt.encrypt({
-  connection: {
+// Route connections to different guacd instances per session
+const sessionId = await server.issueSession(
+  {
     type: 'rdp',
-    guacdHost: 'guacd-us-east.example.com',
-    guacdPort: 4822,
     settings: {
       hostname: '10.0.1.100',
       username: 'admin',
     },
   },
-});
+  undefined,
+  { host: 'guacd-us-east.example.com', port: 4822 }
+);
 ```
 
 ### Join Existing Session
 
 ```typescript
 // Join an active session (for screen sharing, collaboration)
-const joinToken = crypt.encrypt({
-  connection: {
-    join: '$b447679c-0541-4b3d-821b-74389e9dfb16', // Session ID
-    settings: {
-      'read-only': true,
-    },
+const joinSessionId = await server.issueSession({
+  join: '$b447679c-0541-4b3d-821b-74389e9dfb16', // Session ID
+  settings: {
+    'read-only': true,
   },
 });
 ```
@@ -251,7 +272,8 @@ const joinToken = crypt.encrypt({
 
 ```typescript
 {
-  crypt: {
+  // crypt is only required for legacy token-based connections
+  crypt?: {
     cypher: 'AES-256-CBC',
     key: 'your-32-byte-secret-key-here!!',
   },
@@ -273,11 +295,11 @@ const joinToken = crypt.encrypt({
 
 ## Security Considerations
 
-⚠️ **Never expose unencrypted credentials** - Always use encrypted tokens  
-⚠️ **Use strong encryption keys** - Minimum 32 bytes for AES-256  
-⚠️ **Validate cookies before connecting** - Use the `validateCookies` callback  
-⚠️ **Implement rate limiting** - Protect against connection flooding  
-⚠️ **Use HTTPS/WSS in production** - Never send tokens over unencrypted connections
+- Keep credentials server-side with session IDs; avoid sending raw credentials to clients  
+- Use short TTLs for sessions and revoke/clean expired sessions  
+- Validate cookies before connecting (`validateCookies` callback)  
+- Implement rate limiting to protect against connection flooding  
+- Use HTTPS/WSS in production  
 
 ## Protocol Support
 
@@ -408,5 +430,5 @@ This project is inspired by [guacamole-lite](https://github.com/vadimpronin/guac
 ## Support
 
 - 📖 [Documentation](./docs)
-- 🐛 [Issue Tracker](https://github.com/yourusername/guacd-ts/issues)
-- 💬 [Discussions](https://github.com/yourusername/guacd-ts/discussions)
+- 🐛 [Issue Tracker](https://github.com/YasushiMatsumoto/guacd-ts/issues)
+- 💬 [Discussions](https://github.com/YasushiMatsumoto/guacd-ts/discussions)

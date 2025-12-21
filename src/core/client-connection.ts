@@ -8,10 +8,9 @@ import {
   ConnectionState,
   GuacamoleError,
   GuacamoleErrorCode,
-  EncryptedToken,
+  ConnectionSettings,
 } from '../types';
 import { GuacdClient } from './guacd-client';
-import { Crypt } from '../crypto/crypt';
 
 /**
  * ClientConnection manages a single WebSocket<->guacd bridge
@@ -21,74 +20,39 @@ export class ClientConnection extends EventEmitter {
   private guacdClient: GuacdClient | null = null;
   private lastActivity: number = Date.now();
   private activityCheckInterval: NodeJS.Timeout | null = null;
-  private crypt: Crypt;
 
   public guacamoleConnectionId: string | null = null;
-  public connectionSettings: EncryptedToken | null = null;
+  public connectionSettings: ConnectionSettings;
   public connectionSelector: string;
+  public sessionId: string;
 
   constructor(
     private readonly clientOptions: ClientOptions,
     public readonly connectionId: number,
     private readonly webSocket: WebSocket,
-    private readonly query: Record<string, string>,
+    connectionSettings: ConnectionSettings,
+    sessionId: string,
     private readonly callbacks: Callbacks,
     private readonly logger: ILogger
   ) {
     super();
 
-    this.crypt = new Crypt(clientOptions.crypt.cypher, clientOptions.crypt.key);
-
-    // Decrypt and validate token
-    try {
-      this.connectionSettings = this.decryptToken();
-      this.connectionSelector = this.getConnectionSelector();
-    } catch (error) {
-      this.handleError(
-        new GuacamoleError(
-          `Invalid token: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          GuacamoleErrorCode.INVALID_TOKEN,
-          error instanceof Error ? error : undefined
-        )
-      );
-      throw error;
-    }
+    this.connectionSettings = connectionSettings;
+    this.connectionSelector = this.getConnectionSelector(connectionSettings);
+    this.sessionId = sessionId;
 
     this.setupWebSocketHandlers();
   }
 
   /**
-   * Decrypt connection token from query
-   */
-  private decryptToken(): EncryptedToken {
-    const token = this.query.token;
-    if (!token) {
-      throw new Error('Token is required');
-    }
-
-    const decrypted = this.crypt.decrypt(token);
-
-    // Merge with allowed unencrypted settings from query
-    if (this.clientOptions.allowedUnencryptedConnectionSettings) {
-      this.clientOptions.allowedUnencryptedConnectionSettings.forEach((key) => {
-        if (this.query[key] !== undefined) {
-          decrypted.connection.settings[key] = this.query[key];
-        }
-      });
-    }
-
-    return decrypted;
-  }
-
-  /**
    * Get connection selector (protocol or join ID)
    */
-  private getConnectionSelector(): string {
-    if (!this.connectionSettings) {
+  private getConnectionSelector(connectionSettings: ConnectionSettings): string {
+    if (!connectionSettings) {
       throw new Error('Connection settings not available');
     }
 
-    const connection = this.connectionSettings.connection;
+    const connection = connectionSettings;
 
     // Joining existing connection
     if (connection.join) {
@@ -153,29 +117,32 @@ export class ClientConnection extends EventEmitter {
   async connect(guacdOptions: GuacdOptions): Promise<void> {
     this.logger.verbose(`Opening guacd connection for client ${this.connectionId}`);
 
-    if (!this.connectionSettings) {
-      throw new Error('Connection settings not available');
-    }
-
     // Merge connection settings with defaults
     const mergedSettings = this.mergeConnectionOptions();
 
     // Process connection settings via callback if provided
+    let effectiveSettings = mergedSettings;
     if (this.callbacks.processConnectionSettings) {
       await new Promise<void>((resolve, reject) => {
         this.callbacks.processConnectionSettings!(mergedSettings, (error, processed) => {
           if (error) {
             reject(error);
           } else {
-            Object.assign(
-              this.connectionSettings!.connection.settings,
-              processed || mergedSettings
-            );
+            const candidate = processed || mergedSettings;
+            try {
+              effectiveSettings = this.normalizeSettings(candidate);
+            } catch (err) {
+              reject(err);
+              return;
+            }
             resolve();
           }
         });
       });
+    } else {
+      effectiveSettings = this.normalizeSettings(effectiveSettings);
     }
+    this.connectionSettings.settings = effectiveSettings;
 
     // Validate cookies if callback provided
     if (this.callbacks.validateCookies) {
@@ -201,7 +168,7 @@ export class ClientConnection extends EventEmitter {
     this.guacdClient = new GuacdClient(
       guacdOptions,
       this.connectionSelector,
-      this.connectionSettings.connection,
+      { ...this.connectionSettings, settings: effectiveSettings },
       this.logger
     );
 
@@ -246,19 +213,38 @@ export class ClientConnection extends EventEmitter {
   /**
    * Merge connection options with defaults
    */
-  private mergeConnectionOptions(): Record<string, unknown> {
-    if (!this.connectionSettings) {
-      return {};
-    }
-
-    const connection = this.connectionSettings.connection;
-    const type = connection.type;
+  private mergeConnectionOptions(): Record<string, string | number | boolean | string[]> {
+    const type = this.connectionSettings.type;
     const defaults = type && this.clientOptions.connectionDefaultSettings?.[type];
 
     return {
       ...defaults,
-      ...connection.settings,
+      ...this.connectionSettings.settings,
     };
+  }
+
+  /**
+   * Ensure settings are restricted to allowed primitive/array types
+   */
+  private normalizeSettings(
+    settings: Record<string, string | number | boolean | string[] | unknown>
+  ): Record<string, string | number | boolean | string[]> {
+    const normalized: Record<string, string | number | boolean | string[]> = {};
+
+    Object.entries(settings).forEach(([key, value]) => {
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        normalized[key] = value;
+      } else if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+        normalized[key] = value;
+      } else if (value !== undefined && value !== null) {
+        throw new GuacamoleError(
+          `Invalid setting type for "${key}"`,
+          GuacamoleErrorCode.INVALID_SESSION
+        );
+      }
+    });
+
+    return normalized;
   }
 
   /**

@@ -2,7 +2,7 @@
  * Simple standalone server example (CLI)
  * Run with: ts-node examples/standalone.ts
  */
-import { GuacdServer, Crypt } from '../src';
+import { GuacdServer } from '../src';
 
 const server = new GuacdServer(
   {
@@ -13,6 +13,7 @@ const server = new GuacdServer(
     port: 4822,
   },
   {
+    // crypt is optional when using session IDs; kept for legacy token compatibility
     crypt: {
       cypher: 'AES-256-CBC',
       key: 'MySuperSecretKeyForParamsToken12',
@@ -35,12 +36,11 @@ server.on('close', (connection, error) => {
   }
 });
 
-console.log('GuacdServer started on ws://localhost:8080');
-console.log('\nExample token generation:');
+(async () => {
+  console.log('GuacdServer started on ws://localhost:8080');
+  console.log('\nExample session issuance:');
 
-const crypt = new Crypt('AES-256-CBC', 'MySuperSecretKeyForParamsToken12');
-const token = crypt.encrypt({
-  connection: {
+  const sessionId = await server.issueSession({
     type: 'rdp',
     settings: {
       hostname: '192.168.1.100',
@@ -49,7 +49,7 @@ const token = crypt.encrypt({
       port: 3389,
       'ignore-cert': true,
     },
-  },
-});
+  });
 
-console.log(`ws://localhost:8080/?token=${encodeURIComponent(token)}`);
+  console.log(`ws://localhost:8080/?sessionId=${encodeURIComponent(sessionId)}`);
+})();

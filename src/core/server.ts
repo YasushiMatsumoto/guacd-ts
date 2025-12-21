@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import * as WebSocket from 'ws';
 import * as http from 'http';
 import * as url from 'url';
+import * as crypto from 'crypto';
 import {
   WebSocketOptions,
   GuacdOptions,
@@ -23,6 +24,8 @@ export class GuacdServer extends EventEmitter {
   private webSocketServer: WebSocket.Server;
   private logger: Logger;
   private sessionRegistry: SessionRegistry;
+  private sessionExpiryTimers: Map<string, NodeJS.Timeout> = new Map();
+  private usingDefaultSessionRegistry: boolean;
   private activeConnections: Map<number, ClientConnection> = new Map();
   private connectionCounter = 0;
 
@@ -38,7 +41,13 @@ export class GuacdServer extends EventEmitter {
     this.logger = createLogger(clientOptions.log);
 
     // Setup session registry
-    this.sessionRegistry = callbacks.sessionRegistry || this.createMapSessionRegistry();
+    if (callbacks.sessionRegistry) {
+      this.sessionRegistry = callbacks.sessionRegistry;
+      this.usingDefaultSessionRegistry = false;
+    } else {
+      this.sessionRegistry = this.createMapSessionRegistry();
+      this.usingDefaultSessionRegistry = true;
+    }
 
     // Setup default connection settings
     this.setupDefaultConnectionSettings();
@@ -69,6 +78,38 @@ export class GuacdServer extends EventEmitter {
         map.delete(sessionId);
       },
     };
+  }
+
+  /**
+   * Issue a new session ID and store connection info with optional TTL
+   */
+  async issueSession(
+    connectionInfo: ConnectionSettings,
+    ttlMs = 10 * 60 * 1000,
+    guacdOptions?: GuacdOptions
+  ): Promise<string> {
+    const sessionId =
+      typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : crypto.randomBytes(16).toString('hex');
+
+    const expiresAt = ttlMs > 0 ? new Date(Date.now() + ttlMs).toISOString() : undefined;
+
+    const sessionData: SessionData = {
+      guacdHost: guacdOptions?.host || this.defaultGuacdOptions.host || '127.0.0.1',
+      guacdPort: guacdOptions?.port || this.defaultGuacdOptions.port || 4822,
+      connectionInfo,
+      createdAt: new Date().toISOString(),
+      expiresAt,
+      sessionId,
+      joinedConnections: [],
+    };
+
+    await this.setSession(sessionId, sessionData, ttlMs);
+    this.logger.debug(
+      `Issued session ${sessionId} with ttl=${ttlMs}ms targeting guacd ${sessionData.guacdHost}:${sessionData.guacdPort}`
+    );
+    return sessionId;
   }
 
   /**
@@ -138,16 +179,44 @@ export class GuacdServer extends EventEmitter {
       const parsedUrl = url.parse(request.url || '', true);
       const query = parsedUrl.query as Record<string, string>;
 
-      // Extract guacd options (dynamic routing + session join support)
-      const { guacdOptions, connectionInfo, isJoin, targetSessionId } =
-        await this.extractGuacdOptions(query);
+      // Extract sessionId from query or headers
+      const sessionId = this.extractSessionId(query);
+      if (!sessionId) {
+        this.logger.error('Session ID is required');
+        ws.close(4401, 'Session ID required');
+        return;
+      }
+
+      const session = await this.getSession(sessionId);
+      if (!session) {
+        this.logger.error(`Session ${sessionId} not found`);
+        ws.close(4401, 'Invalid or expired session');
+        return;
+      }
+
+      if (session.expiresAt && Date.parse(session.expiresAt) < Date.now()) {
+        await this.deleteSession(sessionId);
+        this.logger.error(`Session ${sessionId} expired`);
+        ws.close(4401, 'Session expired');
+        return;
+      }
+
+      const connectionInfo = session.connectionInfo;
+      const isJoin = Boolean(connectionInfo?.join);
+      const targetSessionId = connectionInfo?.join || null;
+
+      const guacdOptions: GuacdOptions = {
+        host: session.guacdHost || this.defaultGuacdOptions.host,
+        port: session.guacdPort || this.defaultGuacdOptions.port,
+      };
 
       // Create client connection
       const clientConnection = new ClientConnection(
         this.clientOptions,
         connectionId,
         ws,
-        query,
+        connectionInfo,
+        sessionId,
         this.callbacks,
         this.logger
       );
@@ -169,7 +238,16 @@ export class GuacdServer extends EventEmitter {
                   };
 
                   existingSession.joinedConnections.push(joinInfo);
-                  await this.setSession(targetSessionId, existingSession);
+                  await this.setSession(
+                    targetSessionId,
+                    {
+                      ...existingSession,
+                      joinedConnections: existingSession.joinedConnections,
+                    },
+                    existingSession.expiresAt
+                      ? Math.max(Date.parse(existingSession.expiresAt) - Date.now(), 0)
+                      : undefined
+                  );
 
                   this.logger.debug(
                     `Added join to session ${targetSessionId}: ${connection.guacamoleConnectionId}`
@@ -181,18 +259,23 @@ export class GuacdServer extends EventEmitter {
                 }
               } else if (!isJoin && connectionInfo) {
                 // Register new session
+                const ttlMs = session.expiresAt
+                  ? Math.max(Date.parse(session.expiresAt) - Date.now(), 0)
+                  : undefined;
                 const sessionData: SessionData = {
+                  ...session,
                   guacdHost: guacdOptions.host || '127.0.0.1',
                   guacdPort: guacdOptions.port || 4822,
                   connectionInfo,
-                  createdAt: new Date().toISOString(),
-                  joinedConnections: [],
+                  guacamoleConnectionId: connection.guacamoleConnectionId,
+                  joinedConnections: session.joinedConnections || [],
+                  sessionId,
                 };
 
-                await this.setSession(connection.guacamoleConnectionId, sessionData);
+                await this.setSession(sessionId, sessionData, ttlMs);
 
                 this.logger.debug(
-                  `Registered new session ${connection.guacamoleConnectionId} on guacd ${guacdOptions.host}:${guacdOptions.port}`
+                  `Registered session ${sessionId} on guacd ${guacdOptions.host}:${guacdOptions.port}`
                 );
               }
             } catch (error) {
@@ -212,12 +295,10 @@ export class GuacdServer extends EventEmitter {
       clientConnection.on('close', (connection: ClientConnection, error?: Error): void => {
         void (async (): Promise<void> => {
           // Cleanup session registry on close
-          if (connection.guacamoleConnectionId && !isJoin) {
+          if (!isJoin) {
             try {
-              await this.deleteSession(connection.guacamoleConnectionId);
-              this.logger.debug(
-                `Removed session ${connection.guacamoleConnectionId} from registry`
-              );
+              await this.deleteSession(sessionId);
+              this.logger.debug(`Removed session ${sessionId} from registry`);
             } catch (err) {
               this.logger.error(
                 `Failed to remove session: ${err instanceof Error ? err.message : 'Unknown error'}`
@@ -251,68 +332,16 @@ export class GuacdServer extends EventEmitter {
   }
 
   /**
-   * Extract guacd options from query (supports dynamic routing and session join)
+   * Extract session ID from query or headers
    */
-  private async extractGuacdOptions(query: Record<string, string>): Promise<{
-    guacdOptions: GuacdOptions;
-    connectionInfo: ConnectionSettings;
-    isJoin: boolean;
-    targetSessionId: string | null;
-  }> {
-    // This would decrypt the token and extract connection info
-    // For now, returning default
-    const connection = query.connection ? JSON.parse(query.connection) : null;
-
-    // Handle session join
-    if (connection?.join) {
-      const sessionId = connection.join;
-      const session = await this.getSession(sessionId);
-
-      if (session) {
-        const sessionGuacdOptions: GuacdOptions = {
-          host: session.guacdHost,
-          port: session.guacdPort,
-        };
-
-        this.logger.info(
-          `Routing join request to session ${sessionId} on guacd ${sessionGuacdOptions.host}:${sessionGuacdOptions.port}`
-        );
-
-        return {
-          guacdOptions: sessionGuacdOptions,
-          connectionInfo: connection,
-          isJoin: true,
-          targetSessionId: sessionId,
-        };
-      }
+  private extractSessionId(query: Record<string, string>): string | null {
+    if (query.sessionId) {
+      return query.sessionId;
     }
-
-    // Handle dynamic routing for new connections
-    if (connection?.guacdHost || connection?.guacdPort) {
-      const dynamicGuacdOptions: GuacdOptions = {
-        host: connection.guacdHost || this.defaultGuacdOptions.host,
-        port: connection.guacdPort || this.defaultGuacdOptions.port,
-      };
-
-      this.logger.info(
-        `Routing new connection to guacd: ${dynamicGuacdOptions.host}:${dynamicGuacdOptions.port}`
-      );
-
-      return {
-        guacdOptions: dynamicGuacdOptions,
-        connectionInfo: connection,
-        isJoin: false,
-        targetSessionId: null,
-      };
+    if (query.sessionid) {
+      return query.sessionid;
     }
-
-    // Default routing
-    return {
-      guacdOptions: this.defaultGuacdOptions,
-      connectionInfo: connection,
-      isJoin: false,
-      targetSessionId: null,
-    };
+    return null;
   }
 
   /**
@@ -320,20 +349,55 @@ export class GuacdServer extends EventEmitter {
    */
   private async getSession(sessionId: string): Promise<SessionData | null> {
     const result = this.sessionRegistry.get(sessionId);
-    return result instanceof Promise ? await result : result;
+    const session = result instanceof Promise ? await result : result;
+    if (session?.expiresAt && Date.parse(session.expiresAt) < Date.now()) {
+      await this.deleteSession(sessionId);
+      return null;
+    }
+    return session;
   }
 
-  private async setSession(sessionId: string, data: SessionData): Promise<void> {
+  private async setSession(sessionId: string, data: SessionData, ttlMs?: number): Promise<void> {
     const result = this.sessionRegistry.set(sessionId, data);
+    if (result instanceof Promise) {
+      await result;
+    }
+
+    // Only manage TTL for default in-memory registry
+    if (this.usingDefaultSessionRegistry) {
+      const ttl =
+        ttlMs ?? (data.expiresAt ? Math.max(Date.parse(data.expiresAt) - Date.now(), 0) : 0);
+      if (ttl > 0) {
+        this.scheduleSessionExpiry(sessionId, ttl);
+      }
+    }
+  }
+
+  private async deleteSession(sessionId: string): Promise<void> {
+    if (this.usingDefaultSessionRegistry) {
+      this.clearSessionExpiry(sessionId);
+    }
+    const result = this.sessionRegistry.delete(sessionId);
     if (result instanceof Promise) {
       await result;
     }
   }
 
-  private async deleteSession(sessionId: string): Promise<void> {
-    const result = this.sessionRegistry.delete(sessionId);
-    if (result instanceof Promise) {
-      await result;
+  private scheduleSessionExpiry(sessionId: string, ttlMs: number): void {
+    this.clearSessionExpiry(sessionId);
+    const timer = setTimeout(() => {
+      void this.deleteSession(sessionId).catch((err: Error) => {
+        this.logger.error(`Failed to expire session ${sessionId}: ${err.message}`);
+      });
+    }, ttlMs);
+    this.sessionExpiryTimers.set(sessionId, timer);
+  }
+
+  private clearSessionExpiry(sessionId: string): void {
+    const timer = this.sessionExpiryTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.sessionExpiryTimers.delete(sessionId);
     }
   }
 
@@ -368,6 +432,10 @@ export class GuacdServer extends EventEmitter {
     this.activeConnections.forEach((connection) => {
       connection.close();
     });
+
+    // Clear session expiry timers
+    this.sessionExpiryTimers.forEach((timer) => clearTimeout(timer));
+    this.sessionExpiryTimers.clear();
 
     // Close WebSocket server
     this.webSocketServer.close(() => {

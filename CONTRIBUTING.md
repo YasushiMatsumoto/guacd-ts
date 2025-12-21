@@ -9,7 +9,7 @@ Be respectful and professional in all interactions.
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/yourusername/guacd-ts.git`
+2. Clone your fork: `git clone https://github.com/YasushiMatsumoto/guacd-ts.git`
 3. Install dependencies: `npm install`
 4. Create a branch: `git checkout -b feature/your-feature-name`
 
