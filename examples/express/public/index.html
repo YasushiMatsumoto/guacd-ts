@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Express + Guacd-TS Example</title>
-    <script src="https://cdn.jsdelivr.net/npm/guacamole-common-js@1.5.4/all.min.js"></script>
+    <!-- Guacamole client (global Guacamole) -->
+    <script src="https://cdn.jsdelivr.net/npm/guacamole-common-js@1.5.0/dist/cjs/guacamole-common.min.js"></script>
     <style>
       * {
         margin: 0;
@@ -159,7 +160,7 @@
   <body>
     <div class="container">
       <div class="header">
-        <h1>🚀 Express + Guacd-TS</h1>
+        <h1>Express + Guacd-TS</h1>
         <p>Type-safe remote desktop connections with Protocol Builders</p>
       </div>
 
@@ -252,7 +253,7 @@
           <h2 style="margin-bottom: 15px; color: #333">Remote Display</h2>
           <div id="display">
             <div class="placeholder">
-              <div style="font-size: 48px; margin-bottom: 10px">🖥️</div>
+              <div style="font-size: 32px; margin-bottom: 10px">Display</div>
               <div>Click Connect to start</div>
             </div>
           </div>
@@ -308,10 +309,10 @@
         }
 
         try {
-          showStatus('Generating token...', 'info');
+          showStatus('Generating session...', 'info');
           document.getElementById('connectBtn').disabled = true;
 
-          const res = await fetch('/api/token', {
+          const res = await fetch('/api/session', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(params),
@@ -325,7 +326,16 @@
           const display = document.getElementById('display');
           display.innerHTML = '';
 
-          tunnel = new Guacamole.WebSocketTunnel(data.wsUrl);
+          const wsUrl = data.wsUrl;
+          const sessionId = data.sessionId;
+          if (!wsUrl || !sessionId) throw new Error('Missing sessionId or wsUrl from server');
+
+          // Split base URL and query params to avoid double "?" additions by the tunnel
+          const [wsBase, queryPart] = wsUrl.split('?');
+          const connectParams =
+            queryPart || `sessionId=${encodeURIComponent(sessionId)}`;
+
+          tunnel = new Guacamole.WebSocketTunnel(wsBase);
           client = new Guacamole.Client(tunnel);
           display.appendChild(client.getDisplay().getElement());
 
@@ -346,7 +356,7 @@
             showStatus('Error: ' + error.message, 'error');
           };
 
-          client.connect();
+          client.connect(connectParams);
 
           const keyboard = new Guacamole.Keyboard(document);
           keyboard.onkeydown = (k) => client.sendKeyEvent(1, k);
@@ -369,7 +379,7 @@
         if (client) client.disconnect();
         if (tunnel) tunnel.disconnect();
         document.getElementById('display').innerHTML =
-          '<div class="placeholder"><div style="font-size: 48px; margin-bottom: 10px;">🖥️</div><div>Click Connect to start</div></div>';
+          '<div class="placeholder"><div style="font-size: 32px; margin-bottom: 10px;">Display</div><div>Click Connect to start</div></div>';
         showStatus('Disconnected', 'info');
         document.getElementById('connectBtn').disabled = false;
         document.getElementById('disconnectBtn').disabled = true;

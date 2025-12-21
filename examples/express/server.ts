@@ -1,8 +1,8 @@
 /**
- * Express Integration Example
+ * Express Integration Example (session ID flow)
  *
  * This example demonstrates how to integrate guacd-ts with Express.
- * It provides a REST API for token generation and WebSocket endpoint for connections.
+ * It provides a REST API for session issuance and a WebSocket endpoint for connections.
  *
  * Prerequisites:
  * - guacd running on localhost:4822
@@ -15,7 +15,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import path from 'path';
-import { GuacdServer, Crypt, createConnectionBuilder } from '../../src';
+import { GuacdServer, createConnectionBuilder } from '../../src';
 
 const app = express();
 const httpServer = createServer(app);
@@ -24,8 +24,8 @@ const httpServer = createServer(app);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'MySuperSecretKeyForParamsToken12';
 const PORT = process.env.PORT || 3000;
+const SESSION_TTL_MS = parseInt(process.env.SESSION_TTL_MS || '600000', 10); // default 10 minutes
 
 // Initialize GuacdServer
 const guacdServer = new GuacdServer(
@@ -34,13 +34,9 @@ const guacdServer = new GuacdServer(
   },
   {
     host: process.env.GUACD_HOST || '127.0.0.1',
-    port: parseInt(process.env.GUACD_PORT || '4822'),
+    port: parseInt(process.env.GUACD_PORT || '4822', 10),
   },
   {
-    crypt: {
-      cypher: 'AES-256-CBC',
-      key: ENCRYPTION_KEY,
-    },
     log: {
       level: 'INFO',
     },
@@ -68,10 +64,10 @@ guacdServer.on('error', (connection, error) => {
 // API Routes
 
 /**
- * Generate encrypted connection token
- * POST /api/token
+ * Issue session ID and store connection settings server-side
+ * POST /api/session
  */
-app.post('/api/token', (req, res) => {
+app.post('/api/session', async (req, res) => {
   try {
     const { protocol, hostname, port, username, password, domain } = req.body;
 
@@ -141,21 +137,22 @@ app.post('/api/token', (req, res) => {
       });
     }
 
-    // Encrypt the connection settings
-    const crypt = new Crypt('AES-256-CBC', ENCRYPTION_KEY);
-    const token = crypt.encrypt({
-      connection: connectionSettings,
-    });
+    // Issue session ID and keep connection details server-side
+    const sessionId = await guacdServer.issueSession(connectionSettings, SESSION_TTL_MS);
+    const wsHost = req.get('host') || `localhost:${PORT}`;
+    const wsUrl = `ws://${wsHost}/?sessionId=${encodeURIComponent(sessionId)}`;
+    const wsBase = `ws://${wsHost}/`;
 
     res.json({
       success: true,
-      token,
-      wsUrl: `ws://localhost:${PORT}/?token=${encodeURIComponent(token)}`,
+      sessionId,
+      wsUrl,
+      wsBase,
     });
   } catch (error) {
-    console.error('Token generation error:', error);
+    console.error('Session issuance error:', error);
     res.status(500).json({
-      error: 'Failed to generate token',
+      error: 'Failed to issue session',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }
@@ -194,18 +191,18 @@ app.get('/', (req, res) => {
 
 // Start server
 httpServer.listen(PORT, () => {
-  console.log('\n🚀 Express + Guacd-TS Server Started!');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`📱 Web Interface: http://localhost:${PORT}`);
-  console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+  console.log('\nExpress + Guacd-TS Server Started');
+  console.log('---------------------------------------------');
+  console.log(`Web Interface: http://localhost:${PORT}`);
+  console.log(`WebSocket:    ws://localhost:${PORT}`);
   console.log(
-    `🖥️  Guacd: ${process.env.GUACD_HOST || '127.0.0.1'}:${process.env.GUACD_PORT || '4822'}`
+    `Guacd:        ${process.env.GUACD_HOST || '127.0.0.1'}:${process.env.GUACD_PORT || '4822'}`
   );
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('---------------------------------------------');
   console.log('\nAPI Endpoints:');
-  console.log('  POST /api/token  - Generate connection token');
-  console.log('  GET  /api/stats  - Get server statistics');
-  console.log('  GET  /api/health - Health check');
+  console.log('  POST /api/session - Issue session ID and WebSocket URL');
+  console.log('  GET  /api/stats   - Get server statistics');
+  console.log('  GET  /api/health  - Health check');
   console.log('\n');
 });
 
