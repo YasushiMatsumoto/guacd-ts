@@ -15,7 +15,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import path from 'path';
-import { GuacdServer, createConnectionBuilder } from '../../src';
+import { ConnectionSettings, GuacdServer, createConnectionBuilder } from '../../src';
 
 const app = express();
 const httpServer = createServer(app);
@@ -23,6 +23,11 @@ const httpServer = createServer(app);
 // Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+// Serve bundled guacamole-common-js from local node_modules to avoid CDN issues
+app.use(
+  '/vendor/guacamole-common-js',
+  express.static(path.join(__dirname, 'node_modules', 'guacamole-common-js', 'dist'))
+);
 
 const PORT = process.env.PORT || 3000;
 const SESSION_TTL_MS = parseInt(process.env.SESSION_TTL_MS || '600000', 10); // default 10 minutes
@@ -38,7 +43,7 @@ const guacdServer = new GuacdServer(
   },
   {
     log: {
-      level: 'INFO',
+      level: 'DEBUG',
     },
     maxInactivityTime: 60000,
   }
@@ -69,7 +74,18 @@ guacdServer.on('error', (connection, error) => {
  */
 app.post('/api/session', async (req, res) => {
   try {
-    const { protocol, hostname, port, username, password, domain } = req.body;
+    const {
+      protocol,
+      hostname,
+      port,
+      username,
+      password,
+      domain,
+      width,
+      height,
+      security,
+      'ignore-cert': ignoreCert,
+    } = req.body;
 
     if (!protocol || !hostname) {
       return res.status(400).json({
@@ -78,15 +94,26 @@ app.post('/api/session', async (req, res) => {
     }
 
     // Use Protocol Builders for type-safe connection
-    let connectionSettings;
+    let connectionSettings: ConnectionSettings;
 
     if (protocol === 'rdp') {
+      const targetHost = hostname || 'rdp';
       const builder = createConnectionBuilder('rdp')
-        .hostname(hostname)
-        .port(port || 3389);
+        .hostname(targetHost)
+        .port(port || 3389)
+        .security(security || 'any')
+        .ignoreCert(ignoreCert !== false)
+        .colorDepth(24);
 
-      if (username) builder.username(username);
-      if (password) builder.password(password);
+      if (!username || !password) {
+        return res.status(400).json({
+          error: 'Username and password are required for RDP',
+        });
+      }
+
+      builder.username(username);
+      builder.password(password);
+      // Set sane display defaults to avoid 0x0 resolution
       if (domain) builder.domain(domain);
 
       const validation = builder.validate();
@@ -98,6 +125,22 @@ app.post('/api/session', async (req, res) => {
       }
 
       connectionSettings = builder.build();
+      // Ensure required fields are present in settings
+      connectionSettings.settings.hostname = connectionSettings.settings.hostname || targetHost;
+      connectionSettings.settings.port = connectionSettings.settings.port || 3389;
+      if (!connectionSettings.settings.security) {
+        connectionSettings.settings.security = 'any';
+      }
+      // Ensure display params are present
+      if (connectionSettings.settings.width === undefined) {
+        connectionSettings.settings.width = width || 1280;
+      }
+      if (connectionSettings.settings.height === undefined) {
+        connectionSettings.settings.height = height || 720;
+      }
+      if (connectionSettings.settings.dpi === undefined) {
+        connectionSettings.settings.dpi = 96;
+      }
     } else if (protocol === 'vnc') {
       const builder = createConnectionBuilder('vnc')
         .hostname(hostname)
@@ -209,6 +252,15 @@ httpServer.listen(PORT, () => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, closing server...');
+  httpServer.close(() => {
+    guacdServer.close();
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, closing server...');
   httpServer.close(() => {
     guacdServer.close();
     console.log('Server closed');

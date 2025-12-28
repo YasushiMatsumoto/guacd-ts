@@ -3,9 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Express + Guacd-TS Example</title>
-    <!-- Guacamole client (global Guacamole) -->
-    <script src="https://cdn.jsdelivr.net/npm/guacamole-common-js@1.5.0/dist/cjs/guacamole-common.min.js"></script>
+    <title>Guacd-TS Session Demo</title>
+    <!-- Load guacamole-common-js (ESM default export) and expose as global Guacamole -->
+    <script type="module">
+      import Guacamole from '/vendor/guacamole-common-js/esm/guacamole-common.js';
+      window.Guacamole = Guacamole;
+    </script>
     <style>
       * {
         margin: 0;
@@ -14,40 +17,31 @@
       }
       body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
+        background: #f5f7fb;
+        height: 100vh;
+        overflow: hidden;
         padding: 20px;
       }
       .container {
         max-width: 1400px;
         margin: 0 auto;
-      }
-      .header {
-        background: white;
-        padding: 20px 30px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        margin-bottom: 20px;
-      }
-      .header h1 {
-        color: #333;
-        font-size: 28px;
-        margin-bottom: 5px;
-      }
-      .header p {
-        color: #666;
-        font-size: 14px;
+        height: calc(100vh - 40px);
       }
       .main {
         display: grid;
-        grid-template-columns: 400px 1fr;
+        grid-template-columns: 420px 1fr;
         gap: 20px;
+        height: 100%;
       }
       .panel {
         background: white;
-        padding: 25px;
+        padding: 20px;
         border-radius: 12px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
       }
       .form-group {
         margin-bottom: 18px;
@@ -135,6 +129,13 @@
       .protocol-fields.active {
         display: block;
       }
+      .row {
+        display: flex;
+        gap: 10px;
+      }
+      .row .form-group {
+        flex: 1;
+      }
       .stats {
         margin-top: 20px;
         padding: 15px;
@@ -155,105 +156,137 @@
         text-align: center;
         color: #888;
       }
+      .settings-body {
+        flex: 1;
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+      .settings-actions {
+        position: sticky;
+        bottom: 0;
+        background: white;
+        padding-top: 10px;
+      }
+      #display {
+        height: 100%;
+      }
     </style>
   </head>
   <body>
     <div class="container">
-      <div class="header">
-        <h1>Express + Guacd-TS</h1>
-        <p>Type-safe remote desktop connections with Protocol Builders</p>
-      </div>
-
       <div class="main">
         <div class="panel">
           <h2 style="margin-bottom: 20px; color: #333">Connection Settings</h2>
+          <div class="settings-body">
+            <div class="form-group">
+              <label>Protocol</label>
+              <select id="protocol" onchange="switchProtocol()">
+                <option value="rdp">RDP</option>
+                <option value="vnc">VNC</option>
+                <option value="ssh">SSH</option>
+              </select>
+            </div>
 
-          <div class="form-group">
-            <label>Protocol</label>
-            <select id="protocol" onchange="switchProtocol()">
-              <option value="rdp">RDP</option>
-              <option value="vnc">VNC</option>
-              <option value="ssh">SSH</option>
-            </select>
+            <div id="rdp-fields" class="protocol-fields active">
+              <div class="form-group">
+                <label>Hostname *</label>
+                <input type="text" id="rdp-hostname" value="rdp" />
+              </div>
+              <div class="form-group">
+                <label>Port</label>
+                <input type="number" id="rdp-port" value="3389" />
+              </div>
+              <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="rdp-username" value="rdpuser" />
+              </div>
+              <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="rdp-password" value="Passw0rd!" />
+              </div>
+              <div class="form-group">
+                <label>Domain</label>
+                <input type="text" id="rdp-domain" placeholder="Optional" />
+              </div>
+              <div class="row">
+                <div class="form-group">
+                  <label>Width</label>
+                  <input type="number" id="rdp-width" value="1280" />
+                </div>
+                <div class="form-group">
+                  <label>Height</label>
+                  <input type="number" id="rdp-height" value="720" />
+                </div>
+              </div>
+              <div class="row">
+                <div class="form-group">
+                  <label>Security</label>
+                  <select id="rdp-security">
+                    <option value="any">any (auto)</option>
+                    <option value="nla">nla</option>
+                    <option value="tls">tls</option>
+                    <option value="rdp">rdp</option>
+                    <option value="vmconnect">vmconnect</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Ignore Cert</label>
+                  <select id="rdp-ignore-cert">
+                    <option value="true" selected>true</option>
+                    <option value="false">false</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div id="vnc-fields" class="protocol-fields">
+              <div class="form-group">
+                <label>Hostname *</label>
+                <input type="text" id="vnc-hostname" value="rdp" />
+              </div>
+              <div class="form-group">
+                <label>Port</label>
+                <input type="number" id="vnc-port" value="5900" />
+              </div>
+              <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="vnc-password" />
+              </div>
+            </div>
+
+            <div id="ssh-fields" class="protocol-fields">
+              <div class="form-group">
+                <label>Hostname *</label>
+                <input type="text" id="ssh-hostname" value="rdp" />
+              </div>
+              <div class="form-group">
+                <label>Port</label>
+                <input type="number" id="ssh-port" value="22" />
+              </div>
+              <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="ssh-username" value="root" />
+              </div>
+              <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="ssh-password" />
+              </div>
+            </div>
           </div>
 
-          <div id="rdp-fields" class="protocol-fields active">
-            <div class="form-group">
-              <label>Hostname *</label>
-              <input type="text" id="rdp-hostname" value="192.168.1.100" />
-            </div>
-            <div class="form-group">
-              <label>Port</label>
-              <input type="number" id="rdp-port" value="3389" />
-            </div>
-            <div class="form-group">
-              <label>Username</label>
-              <input type="text" id="rdp-username" value="Administrator" />
-            </div>
-            <div class="form-group">
-              <label>Password</label>
-              <input type="password" id="rdp-password" />
-            </div>
-            <div class="form-group">
-              <label>Domain</label>
-              <input type="text" id="rdp-domain" placeholder="Optional" />
-            </div>
+          <div class="settings-actions">
+            <button class="btn btn-primary" onclick="connect()" id="connectBtn">Connect</button>
+            <button class="btn btn-danger" onclick="disconnect()" id="disconnectBtn" disabled>
+              Disconnect
+            </button>
+            <div id="status" class="status"></div>
           </div>
 
-          <div id="vnc-fields" class="protocol-fields">
-            <div class="form-group">
-              <label>Hostname *</label>
-              <input type="text" id="vnc-hostname" value="192.168.1.100" />
-            </div>
-            <div class="form-group">
-              <label>Port</label>
-              <input type="number" id="vnc-port" value="5900" />
-            </div>
-            <div class="form-group">
-              <label>Password</label>
-              <input type="password" id="vnc-password" />
-            </div>
-          </div>
-
-          <div id="ssh-fields" class="protocol-fields">
-            <div class="form-group">
-              <label>Hostname *</label>
-              <input type="text" id="ssh-hostname" value="192.168.1.100" />
-            </div>
-            <div class="form-group">
-              <label>Port</label>
-              <input type="number" id="ssh-port" value="22" />
-            </div>
-            <div class="form-group">
-              <label>Username</label>
-              <input type="text" id="ssh-username" value="root" />
-            </div>
-            <div class="form-group">
-              <label>Password</label>
-              <input type="password" id="ssh-password" />
-            </div>
-          </div>
-
-          <button class="btn btn-primary" onclick="connect()" id="connectBtn">Connect</button>
-          <button class="btn btn-danger" onclick="disconnect()" id="disconnectBtn" disabled>
-            Disconnect
-          </button>
-
-          <div id="status" class="status"></div>
-
-          <div class="stats">
-            <div class="stat-row">
-              <span>Active Connections:</span>
-              <strong id="activeConnections">0</strong>
-            </div>
-          </div>
         </div>
 
         <div class="panel">
-          <h2 style="margin-bottom: 15px; color: #333">Remote Display</h2>
           <div id="display">
             <div class="placeholder">
-              <div style="font-size: 32px; margin-bottom: 10px">Display</div>
               <div>Click Connect to start</div>
             </div>
           </div>
@@ -292,11 +325,18 @@
         const params = { protocol };
 
         if (protocol === 'rdp') {
+          if (!document.getElementById('rdp-width').value || !document.getElementById('rdp-height').value) {
+            setDefaultResolution();
+          }
           params.hostname = document.getElementById('rdp-hostname').value;
           params.port = parseInt(document.getElementById('rdp-port').value);
           params.username = document.getElementById('rdp-username').value;
           params.password = document.getElementById('rdp-password').value;
           params.domain = document.getElementById('rdp-domain').value;
+          params.width = parseInt(document.getElementById('rdp-width').value);
+          params.height = parseInt(document.getElementById('rdp-height').value);
+          params.security = document.getElementById('rdp-security').value;
+          params['ignore-cert'] = document.getElementById('rdp-ignore-cert').value === 'true';
         } else if (protocol === 'vnc') {
           params.hostname = document.getElementById('vnc-hostname').value;
           params.port = parseInt(document.getElementById('vnc-port').value);
@@ -332,8 +372,7 @@
 
           // Split base URL and query params to avoid double "?" additions by the tunnel
           const [wsBase, queryPart] = wsUrl.split('?');
-          const connectParams =
-            queryPart || `sessionId=${encodeURIComponent(sessionId)}`;
+          const connectParams = queryPart || `sessionId=${encodeURIComponent(sessionId)}`;
 
           tunnel = new Guacamole.WebSocketTunnel(wsBase);
           client = new Guacamole.Client(tunnel);
@@ -358,6 +397,16 @@
 
           client.connect(connectParams);
 
+          // Send initial display size to server to avoid 0x0 resolution
+          const setSize = () => {
+            const displayRect = display.getBoundingClientRect();
+            const w = Math.floor(displayRect.width);
+            const h = Math.floor(displayRect.height);
+            client.sendSize(w, h);
+          };
+          setSize();
+          window.addEventListener('resize', setSize);
+
           const keyboard = new Guacamole.Keyboard(document);
           keyboard.onkeydown = (k) => client.sendKeyEvent(1, k);
           keyboard.onkeyup = (k) => client.sendKeyEvent(0, k);
@@ -379,12 +428,21 @@
         if (client) client.disconnect();
         if (tunnel) tunnel.disconnect();
         document.getElementById('display').innerHTML =
-          '<div class="placeholder"><div style="font-size: 32px; margin-bottom: 10px;">Display</div><div>Click Connect to start</div></div>';
+          '<div class="placeholder"><div>Click Connect to start</div></div>';
         showStatus('Disconnected', 'info');
         document.getElementById('connectBtn').disabled = false;
         document.getElementById('disconnectBtn').disabled = true;
       }
 
+      function setDefaultResolution() {
+        const displayRect = document.getElementById('display').getBoundingClientRect();
+        const width = Math.floor(displayRect.width);
+        const height = Math.floor(displayRect.height);
+        document.getElementById('rdp-width').value = width;
+        document.getElementById('rdp-height').value = height;
+      }
+
+      setDefaultResolution();
       setInterval(updateStats, 5000);
       updateStats();
     </script>

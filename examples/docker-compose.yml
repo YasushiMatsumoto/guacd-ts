@@ -1,0 +1,18 @@
+services:
+  guacd:
+    image: guacamole/guacd:1.5.5
+    container_name: guacd
+    restart: unless-stopped
+    ports:
+      - "4822:4822"
+    environment:
+      - GUACD_LOG_LEVEL=debug
+
+  rdp:
+    build: ./rdp
+    container_name: demo-rdp
+    restart: unless-stopped
+    ports:
+      - "13389:3389"
+    environment:
+      - TZ=Asia/Tokyo
