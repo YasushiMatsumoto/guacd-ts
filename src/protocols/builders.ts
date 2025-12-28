@@ -109,6 +109,21 @@ export class RDPConnectionBuilder extends BaseConnectionBuilder<RDPConnectionPar
     return this;
   }
 
+  width(width: number): this {
+    this.params.width = width;
+    return this;
+  }
+
+  height(height: number): this {
+    this.params.height = height;
+    return this;
+  }
+
+  dpi(dpi: number): this {
+    this.params.dpi = dpi;
+    return this;
+  }
+
   colorDepth(depth: 8 | 16 | 24 | 32): this {
     this.params['color-depth'] = depth;
     return this;
@@ -215,6 +230,15 @@ export class RDPConnectionBuilder extends BaseConnectionBuilder<RDPConnectionPar
     }
     if (this.params.security === 'nla' && !this.params.password) {
       warnings.push('NLA selected but password is empty; authentication will fail');
+    }
+    if (this.params.width && this.params.width <= 0) {
+      errors.push('width must be greater than 0');
+    }
+    if (this.params.height && this.params.height <= 0) {
+      errors.push('height must be greater than 0');
+    }
+    if (this.params.dpi && this.params.dpi <= 0) {
+      errors.push('dpi must be greater than 0');
     }
 
     return {

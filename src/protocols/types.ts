@@ -11,6 +11,12 @@ export interface CommonConnectionParams {
   hostname: string;
   /** Remote port (protocol-specific default if not specified) */
   port?: number;
+  /** Desired display width (if supported by protocol) */
+  width?: number;
+  /** Desired display height (if supported by protocol) */
+  height?: number;
+  /** Display DPI (if supported by protocol) */
+  dpi?: number;
   /** Enable or disable audio (client-side) */
   'enable-audio'?: boolean;
   /** Enable or disable printing */
