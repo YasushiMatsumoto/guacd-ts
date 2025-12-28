@@ -42,11 +42,7 @@ const server = new GuacdServer(
   { port: 8080 },
   { host: '127.0.0.1', port: 4822 },
   {
-    // crypt remains available for legacy token flow; not required for session IDs
-    crypt: {
-      cypher: 'AES-256-CBC',
-      key: 'MySuperSecretKeyForParamsToken12', // 32 bytes
-    },
+    log: { level: 'INFO' },
   }
 );
 
@@ -76,17 +72,7 @@ import { GuacdServer } from 'guacd-ts';
 const app = express();
 const httpServer = createServer(app);
 
-const guacdServer = new GuacdServer(
-  { server: httpServer },
-  { host: '127.0.0.1', port: 4822 },
-  {
-    // crypt only needed for legacy token-based clients
-    crypt: {
-      cypher: 'AES-256-CBC',
-      key: 'MySuperSecretKeyForParamsToken12',
-    },
-  }
-);
+const guacdServer = new GuacdServer({ server: httpServer }, { host: '127.0.0.1', port: 4822 }, {});
 
 httpServer.listen(3000);
 ```
@@ -99,17 +85,7 @@ import { GuacdServer } from 'guacd-ts';
 
 const fastify = Fastify();
 
-const guacdServer = new GuacdServer(
-  { server: fastify.server },
-  { host: '127.0.0.1', port: 4822 },
-  {
-    // crypt only needed for legacy token-based clients
-    crypt: {
-      cypher: 'AES-256-CBC',
-      key: 'MySuperSecretKeyForParamsToken12',
-    },
-  }
-);
+const guacdServer = new GuacdServer({ server: fastify.server }, { host: '127.0.0.1', port: 4822 }, {});
 
 await fastify.listen({ port: 3000 });
 ```
@@ -135,7 +111,7 @@ const sessionId = await server.issueSession(
 );
 ```
 
-Clients connect via `?sessionId=<issued id>` (or `Authorization: Bearer <id>` / `X-Session-Id` header). The server loads the stored settings and starts the guacd bridge. The legacy `token` parameter encrypted via `Crypt` remains available for backward compatibility but is no longer required.
+Clients connect via `?sessionId=<issued id>` (or `Authorization: Bearer <id>` / `X-Session-Id` header). The server loads the stored settings and starts the guacd bridge.
 
 ### Cookie Validation (Before Connect)
 
@@ -397,18 +373,6 @@ class GuacdServer extends EventEmitter {
 - `open` - Connection established
 - `close` - Connection closed
 - `error` - Connection error
-
-### Crypt
-
-Utility for encrypting/decrypting connection tokens.
-
-```typescript
-class Crypt {
-  constructor(cypher: string, key: string);
-  encrypt(value: EncryptedToken): string;
-  decrypt(encryptedToken: string): EncryptedToken;
-}
-```
 
 ## Contributing
 
