@@ -1,4 +1,4 @@
-import { GuacamoleParser } from '../../protocol/parser';
+import { GuacamoleParser } from '../../protocols/parser';
 
 describe('GuacamoleParser', () => {
   let parser: GuacamoleParser;

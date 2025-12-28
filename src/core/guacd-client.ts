@@ -8,25 +8,37 @@ import {
   GuacamoleError,
   GuacamoleErrorCode,
 } from '../types';
-import { GuacamoleParser } from '../protocol/parser';
+import { GuacamoleParser } from '../protocols/parser';
 
 /**
  * GuacdClient manages the connection to the guacd daemon
  */
 export class GuacdClient extends EventEmitter {
+  // Lifecycle state for TCP session toward guacd
   private state: ConnectionState = ConnectionState.OPENING;
+  // Underlying TCP socket to guacd
   private connection: net.Socket | null = null;
+  // Guacamole instruction parser
   private parser: GuacamoleParser;
+  // Buffer for messages that arrive before ready/open
   private sendBuffer = '';
+  // Last time we saw activity from guacd (for inactivity timeout)
   private lastActivity: number = Date.now();
   private activityCheckInterval: NodeJS.Timeout | null = null;
+  // Becomes true after guacd sends "ready" (post-handshake traffic)
+  private handshakeComplete = false;
 
+  // Guacamole connection ID returned by guacd after ready
   public guacamoleConnectionId: string | null = null;
 
   constructor(
+    // Target guacd host/port
     private readonly guacdOptions: GuacdOptions,
+    // Selector sent in initial "select" (protocol or join id)
     private readonly connectionSelector: string,
+    // Connection settings (handshake args & capabilities)
     private readonly connectionSettings: ConnectionSettings,
+    // Logger instance (shared from server)
     private readonly logger: ILogger
   ) {
     super();
@@ -44,7 +56,12 @@ export class GuacdClient extends EventEmitter {
     const host = this.guacdOptions.host || '127.0.0.1';
     const port = this.guacdOptions.port || 4822;
 
-    this.logger.verbose(`Connecting to guacd at ${host}:${port}`);
+    this.logger.verbose(
+      `Connecting to guacd at ${host}:${port} selector=${this.connectionSelector}`
+    );
+    this.logger.debug(
+      `Connection settings keys: ${Object.keys(this.connectionSettings.settings).join(',')}`
+    );
 
     this.connection = net.connect(port, host);
 
@@ -81,7 +98,8 @@ export class GuacdClient extends EventEmitter {
   private handleData(data: Buffer): void {
     this.lastActivity = Date.now();
     const dataString = data.toString('utf8');
-    this.logger.debug(`Received from guacd: ${dataString}`);
+    const level = this.handshakeComplete ? 'verbose' : 'debug';
+    this.logger[level as 'verbose' | 'debug']?.(`Received from guacd: ${dataString}`);
     this.parser.receive(dataString);
   }
 
@@ -89,6 +107,9 @@ export class GuacdClient extends EventEmitter {
    * Handle connection closed
    */
   private handleClose(hadError: boolean): void {
+    this.logger.debug(
+      `guacd TCP connection closed hadError=${hadError} selector=${this.connectionSelector} connId=${this.guacamoleConnectionId ?? 'n/a'}`
+    );
     const error = hadError
       ? new GuacamoleError('Connection closed unexpectedly', GuacamoleErrorCode.CONNECTION_ERROR)
       : undefined;
@@ -159,6 +180,7 @@ export class GuacdClient extends EventEmitter {
 
       if (this.state !== ConnectionState.OPEN) {
         this.state = ConnectionState.OPEN;
+        this.handshakeComplete = true;
         this.emit('open', this);
 
         // Send buffered data
@@ -184,7 +206,16 @@ export class GuacdClient extends EventEmitter {
     const settings = this.connectionSettings.settings;
     const handshakeReply: string[] = [];
 
+    // Send client capabilities before final connect per Guacamole protocol
+    this.sendClientCapabilities();
+
     serverHandshake.forEach((paramName) => {
+      // Echo version tokens directly (e.g., VERSION_1_5_0)
+      if (paramName.toUpperCase().startsWith('VERSION')) {
+        handshakeReply.push(paramName);
+        return;
+      }
+
       const value = settings[paramName];
       if (value !== undefined) {
         if (Array.isArray(value)) {
@@ -198,6 +229,46 @@ export class GuacdClient extends EventEmitter {
     });
 
     this.sendInstruction(['connect', ...handshakeReply]);
+  }
+
+  /**
+   * Send client capabilities (size, audio/video/image, timezone/name) before connect
+   */
+  private sendClientCapabilities(): void {
+    const s = this.connectionSettings.settings;
+
+    // Display size: use provided or defaults ensured upstream
+    const width = s.width ?? '';
+    const height = s.height ?? '';
+    const dpi = s.dpi ?? '';
+    this.sendInstruction(['size', String(width), String(height), String(dpi)]);
+
+    // Media support lists (empty is allowed)
+    const audioList = this.toList(s.audio);
+    const videoList = this.toList(s.video);
+    const imageList = this.toList(s.image) || ['image/png', 'image/jpeg'];
+
+    this.sendInstruction(['audio', ...audioList]);
+    this.sendInstruction(['video', ...videoList]);
+    this.sendInstruction(['image', ...imageList]);
+
+    // Optional timezone / display name
+    if (s['timezone']) {
+      this.sendInstruction(['timezone', String(s['timezone'])]);
+    }
+    if (s['name']) {
+      this.sendInstruction(['name', String(s['name'])]);
+    }
+  }
+
+  private toList(value: string | string[] | number | boolean | undefined): string[] {
+    if (Array.isArray(value)) {
+      return value.map((v) => String(v));
+    }
+    if (value === undefined) return [];
+    const str = String(value);
+    if (!str.length) return [];
+    return [str];
   }
 
   /**
@@ -221,7 +292,8 @@ export class GuacdClient extends EventEmitter {
       return;
     }
 
-    this.logger.debug(`Sending to guacd: ${data}`);
+    const level = this.handshakeComplete ? 'verbose' : 'debug';
+    this.logger[level as 'verbose' | 'debug']?.(`Sending to guacd: ${data}`);
 
     if (!this.connection) {
       throw new GuacamoleError(

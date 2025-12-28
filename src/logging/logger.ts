@@ -5,9 +5,12 @@ import { LogLevel, Logger as ILogger } from '../types';
  */
 export class Logger implements ILogger {
   constructor(
+    // Minimum level to output; lower numeric = higher priority
     private level: LogLevel = LogLevel.INFO,
+    // Writer for non-error logs
     // eslint-disable-next-line no-console
     private stdLog: (message: string) => void = console.log,
+    // Writer for error logs
     private errorLog: (message: string) => void = console.error
   ) {}
 

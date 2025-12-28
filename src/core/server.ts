@@ -21,18 +21,29 @@ import { createLogger, Logger } from '../logging/logger';
  * GuacdServer - Main server class for managing WebSocket connections to guacd
  */
 export class GuacdServer extends EventEmitter {
+  // Underlying WS server (either standalone or attached to an HTTP server)
   private webSocketServer: WebSocket.Server;
+  // Application logger (configurable via clientOptions.log)
   private logger: Logger;
+  // Session registry (either user-supplied or in-memory fallback)
   private sessionRegistry: SessionRegistry;
+  // Timers for expiring sessions when using the default registry
   private sessionExpiryTimers: Map<string, NodeJS.Timeout> = new Map();
+  // Flag to avoid double-scheduling TTL when registry is external
   private usingDefaultSessionRegistry: boolean;
+  // Active WebSocket<->guacd bridges keyed by incremental connectionId
   private activeConnections: Map<number, ClientConnection> = new Map();
+  // Monotonic counter to assign connection IDs
   private connectionCounter = 0;
 
   constructor(
+    // WebSocket server options (port/server, etc.)
     private readonly wsOptions: WebSocketOptions,
+    // Default guacd host/port used when session does not override
     private readonly defaultGuacdOptions: GuacdOptions,
+    // Client tuning: logging, inactivity timeouts, default settings, etc.
     private readonly clientOptions: ClientOptions,
+    // Optional hooks (processConnectionSettings, validateCookies, sessionRegistry)
     private readonly callbacks: Callbacks = {}
   ) {
     super();
@@ -66,6 +77,7 @@ export class GuacdServer extends EventEmitter {
 
   /**
    * Create Map-based session registry wrapper
+   * In-memory fallback when caller does not supply a registry.
    */
   private createMapSessionRegistry(): SessionRegistry {
     const map = new Map<string, SessionData>();
@@ -82,6 +94,7 @@ export class GuacdServer extends EventEmitter {
 
   /**
    * Issue a new session ID and store connection info with optional TTL
+   * Session is kept server-side; client only receives the sessionId.
    */
   async issueSession(
     connectionInfo: ConnectionSettings,
@@ -114,6 +127,7 @@ export class GuacdServer extends EventEmitter {
 
   /**
    * Setup default connection settings
+   * Provides sane defaults per protocol; user overrides merged later.
    */
   private setupDefaultConnectionSettings(): void {
     const defaults: DefaultConnectionSettings = {
@@ -152,6 +166,7 @@ export class GuacdServer extends EventEmitter {
 
   /**
    * Create WebSocket server
+   * Attaches connection handler to route to guacd based on sessionId.
    */
   private createWebSocketServer(): WebSocket.Server {
     const server = new WebSocket.Server(this.wsOptions as WebSocket.ServerOptions);
@@ -169,6 +184,7 @@ export class GuacdServer extends EventEmitter {
 
   /**
    * Handle new WebSocket connection
+   * Resolves session, creates ClientConnection, wires lifecycle, and bridges to guacd.
    */
   private async handleNewConnection(ws: WebSocket, request: http.IncomingMessage): Promise<void> {
     this.connectionCounter++;
@@ -182,6 +198,7 @@ export class GuacdServer extends EventEmitter {
       // Extract sessionId from query or headers
       const sessionId = this.extractSessionId(query);
       if (!sessionId) {
+        this.logger.warn('Session ID is required but missing in WebSocket request');
         this.logger.error('Session ID is required');
         ws.close(4401, 'Session ID required');
         return;
@@ -189,6 +206,7 @@ export class GuacdServer extends EventEmitter {
 
       const session = await this.getSession(sessionId);
       if (!session) {
+        this.logger.warn(`Session ${sessionId} not found or expired`);
         this.logger.error(`Session ${sessionId} not found`);
         ws.close(4401, 'Invalid or expired session');
         return;
@@ -196,6 +214,7 @@ export class GuacdServer extends EventEmitter {
 
       if (session.expiresAt && Date.parse(session.expiresAt) < Date.now()) {
         await this.deleteSession(sessionId);
+        this.logger.warn(`Session ${sessionId} expired on lookup`);
         this.logger.error(`Session ${sessionId} expired`);
         ws.close(4401, 'Session expired');
         return;
@@ -209,6 +228,10 @@ export class GuacdServer extends EventEmitter {
         host: session.guacdHost || this.defaultGuacdOptions.host,
         port: session.guacdPort || this.defaultGuacdOptions.port,
       };
+
+      this.logger.debug(
+        `Session ${sessionId} using guacd ${guacdOptions.host}:${guacdOptions.port} (connectionId=${connectionId}, selector=${connectionInfo?.type || connectionInfo?.join || 'unknown'})`
+      );
 
       // Create client connection
       const clientConnection = new ClientConnection(
@@ -333,6 +356,7 @@ export class GuacdServer extends EventEmitter {
 
   /**
    * Extract session ID from query or headers
+   * Currently only query-string is supported.
    */
   private extractSessionId(query: Record<string, string>): string | null {
     if (query.sessionId) {
@@ -351,6 +375,7 @@ export class GuacdServer extends EventEmitter {
     const result = this.sessionRegistry.get(sessionId);
     const session = result instanceof Promise ? await result : result;
     if (session?.expiresAt && Date.parse(session.expiresAt) < Date.now()) {
+      this.logger.debug(`Session ${sessionId} expired on access, deleting`);
       await this.deleteSession(sessionId);
       return null;
     }
@@ -368,6 +393,7 @@ export class GuacdServer extends EventEmitter {
       const ttl =
         ttlMs ?? (data.expiresAt ? Math.max(Date.parse(data.expiresAt) - Date.now(), 0) : 0);
       if (ttl > 0) {
+        this.logger.debug(`Scheduling TTL for session ${sessionId}: ${ttl}ms`);
         this.scheduleSessionExpiry(sessionId, ttl);
       }
     }
@@ -426,7 +452,7 @@ export class GuacdServer extends EventEmitter {
    * Close the server
    */
   close(): void {
-    this.logger.info('Closing all connections...');
+    this.logger.info(`Closing all connections... (${this.activeConnections.size} active)`);
 
     // Close all active connections
     this.activeConnections.forEach((connection) => {

@@ -23,8 +23,6 @@ Module providing TypeScript type definitions.
 
 ### Security
 
-- `CryptConfig` - Encryption configuration
-- `EncryptedToken` - Encrypted token
 - `GuacamoleError` - Error class
 - `GuacamoleErrorCode` - Error code enumeration
 
@@ -40,10 +38,6 @@ Module providing TypeScript type definitions.
 import { ClientOptions, GuacdOptions, LogLevel } from './types';
 
 const options: ClientOptions = {
-  crypt: {
-    cypher: 'AES-256-CBC',
-    key: 'your-key',
-  },
   log: {
     level: LogLevel.INFO,
   },

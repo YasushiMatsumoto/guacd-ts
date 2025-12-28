@@ -9,7 +9,10 @@ import {
 describe('RDPConnectionBuilder', () => {
   describe('basic connection', () => {
     it('should build valid RDP connection with minimal params', () => {
-      const connection = new RDPConnectionBuilder().hostname('192.168.1.100').build();
+      const connection = new RDPConnectionBuilder()
+        .hostname('192.168.1.100')
+        .username('user')
+        .build();
 
       expect(connection.type).toBe('rdp');
       expect(connection.settings.hostname).toBe('192.168.1.100');
@@ -42,6 +45,7 @@ describe('RDPConnectionBuilder', () => {
     it('should configure drive redirection', () => {
       const connection = new RDPConnectionBuilder()
         .hostname('server')
+        .username('user')
         .enableDrive('/home/user/shared', 'MyDrive')
         .build();
 
@@ -54,6 +58,7 @@ describe('RDPConnectionBuilder', () => {
     it('should configure RemoteApp', () => {
       const connection = new RDPConnectionBuilder()
         .hostname('server')
+        .username('user')
         .remoteApp('calc.exe', '/option', 'C:\\')
         .build();
 
@@ -65,6 +70,7 @@ describe('RDPConnectionBuilder', () => {
     it('should configure gateway', () => {
       const connection = new RDPConnectionBuilder()
         .hostname('internal-server')
+        .username('user')
         .gateway('gateway.example.com', 'gwuser', 'gwpass', 443)
         .build();
 
@@ -77,6 +83,7 @@ describe('RDPConnectionBuilder', () => {
     it('should configure performance flags', () => {
       const connection = new RDPConnectionBuilder()
         .hostname('server')
+        .username('user')
         .performanceFlags({
           wallpaper: true,
           theming: true,
@@ -94,6 +101,7 @@ describe('RDPConnectionBuilder', () => {
     it('should configure recording', () => {
       const connection = new RDPConnectionBuilder()
         .hostname('server')
+        .username('user')
         .enableRecording('/var/recordings', 'session-1')
         .build();
 
@@ -105,7 +113,7 @@ describe('RDPConnectionBuilder', () => {
 
   describe('validation', () => {
     it('should validate successfully with required fields', () => {
-      const builder = new RDPConnectionBuilder().hostname('server');
+      const builder = new RDPConnectionBuilder().hostname('server').username('user');
       const result = builder.validate();
 
       expect(result.valid).toBe(true);
@@ -132,8 +140,8 @@ describe('RDPConnectionBuilder', () => {
       const builder = new RDPConnectionBuilder().hostname('server').password('pass');
       const result = builder.validate();
 
-      expect(result.valid).toBe(true);
-      expect(result.warnings).toContain('Password provided without username');
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('username is required');
     });
   });
 });
@@ -207,6 +215,7 @@ describe('SSHConnectionBuilder', () => {
     const connection = new SSHConnectionBuilder()
       .hostname('server')
       .username('user')
+      .password('secret')
       .font('Courier New', 14)
       .colorScheme('solarized')
       .scrollback(2000)
@@ -222,6 +231,7 @@ describe('SSHConnectionBuilder', () => {
     const connection = new SSHConnectionBuilder()
       .hostname('server')
       .username('user')
+      .password('secret')
       .enableSFTP('/home/user')
       .build();
 
@@ -233,6 +243,7 @@ describe('SSHConnectionBuilder', () => {
     const connection = new SSHConnectionBuilder()
       .hostname('server')
       .username('user')
+      .password('secret')
       .keepAlive(60)
       .build();
 
@@ -243,6 +254,7 @@ describe('SSHConnectionBuilder', () => {
     const connection = new SSHConnectionBuilder()
       .hostname('server')
       .username('user')
+      .password('secret')
       .command('ls -la')
       .build();
 

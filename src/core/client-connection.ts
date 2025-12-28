@@ -16,23 +16,37 @@ import { GuacdClient } from './guacd-client';
  * ClientConnection manages a single WebSocket<->guacd bridge
  */
 export class ClientConnection extends EventEmitter {
-  private state: ConnectionState = ConnectionState.OPEN;
+  // Lifecycle state for this bridge
+  private state: ConnectionState = ConnectionState.OPENING;
+  // Underlying TCP client to guacd (set after connect())
   private guacdClient: GuacdClient | null = null;
+  // Tracks last inbound WS activity for inactivity timeouts
   private lastActivity: number = Date.now();
   private activityCheckInterval: NodeJS.Timeout | null = null;
 
+  // Guacamole connection ID assigned by guacd after ready
   public guacamoleConnectionId: string | null = null;
+  // Connection parameters passed in via session
   public connectionSettings: ConnectionSettings;
+  // Selector sent in initial "select" (protocol type or join ID)
   public connectionSelector: string;
+  // Session identifier bound to this WebSocket
   public sessionId: string;
 
   constructor(
+    // Global client tuning (defaults, inactivity timeouts, logging)
     private readonly clientOptions: ClientOptions,
+    // Incremental ID for this WebSocket bridge
     public readonly connectionId: number,
+    // WebSocket connected client
     private readonly webSocket: WebSocket,
+    // Connection info (type/join + settings)
     connectionSettings: ConnectionSettings,
+    // Session ID associated with this WebSocket
     sessionId: string,
+    // Hooks for processing settings or validating cookies
     private readonly callbacks: Callbacks,
+    // Shared logger instance
     private readonly logger: ILogger
   ) {
     super();
@@ -82,7 +96,7 @@ export class ClientConnection extends EventEmitter {
   private handleWebSocketMessage(message: WebSocket.Data): void {
     this.lastActivity = Date.now();
     const messageString = message.toString();
-    this.logger.debug(`Received from WebSocket: ${messageString}`);
+    this.logger.verbose(`Received from WebSocket: ${messageString}`);
 
     if (this.guacdClient) {
       this.guacdClient.send(messageString, true);
@@ -165,6 +179,9 @@ export class ClientConnection extends EventEmitter {
     }
 
     // Create guacd client
+    this.logger.debug(
+      `Starting guacd client selector=${this.connectionSelector} host=${guacdOptions.host || '127.0.0.1'} port=${guacdOptions.port || 4822} settings keys=${Object.keys(effectiveSettings).join(',')}`
+    );
     this.guacdClient = new GuacdClient(
       guacdOptions,
       this.connectionSelector,
@@ -205,8 +222,7 @@ export class ClientConnection extends EventEmitter {
    * Parse cookies from query or headers
    */
   private parseCookies(): Record<string, string> {
-    // In a real implementation, parse from WebSocket upgrade request headers
-    // For now, return from query if available
+    // TODO: Implement cookie parsing from the WebSocket upgrade request headers if needed
     return {};
   }
 
@@ -217,10 +233,19 @@ export class ClientConnection extends EventEmitter {
     const type = this.connectionSettings.type;
     const defaults = type && this.clientOptions.connectionDefaultSettings?.[type];
 
-    return {
+    const merged: Record<string, string | number | boolean | string[]> = {
       ...defaults,
       ...this.connectionSettings.settings,
     };
+
+    // Ensure non-zero dimensions for graphical protocols
+    if (type === 'rdp' || type === 'vnc') {
+      if (!merged.width || Number(merged.width) === 0) merged.width = 1280;
+      if (!merged.height || Number(merged.height) === 0) merged.height = 720;
+      if (!merged.dpi || Number(merged.dpi) === 0) merged.dpi = 96;
+    }
+
+    return merged;
   }
 
   /**
@@ -275,7 +300,7 @@ export class ClientConnection extends EventEmitter {
       return;
     }
 
-    this.logger.debug(`Sending to WebSocket: ${data}`);
+    this.logger.verbose(`Sending to WebSocket: ${data}`);
 
     if (this.webSocket.readyState === WebSocket.OPEN) {
       this.webSocket.send(data, { binary: false }, (error) => {

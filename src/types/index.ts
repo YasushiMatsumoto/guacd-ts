@@ -22,23 +22,8 @@ export interface ConnectionSettings {
   join?: string;
   guacdHost?: string;
   guacdPort?: number;
+  // Raw guacd args/settings; values must be string/number/boolean or string[]
   settings: Record<string, string | number | boolean | string[]>;
-}
-
-/**
- * Encrypted token structure
- */
-export interface EncryptedToken {
-  connection: ConnectionSettings;
-  [key: string]: unknown;
-}
-
-/**
- * Encryption configuration
- */
-export interface CryptConfig {
-  cypher: string;
-  key: string;
 }
 
 /**
@@ -61,7 +46,7 @@ export interface DefaultConnectionSettings {
   vnc?: Record<string, string | number | boolean | string[]>;
   ssh?: Record<string, string | number | boolean | string[]>;
   telnet?: Record<string, string | number | boolean | string[]>;
-  kubernetes?: Record<string, string | number | boolean | string[]>; // 追加
+  kubernetes?: Record<string, string | number | boolean | string[]>;
 }
 
 /**
@@ -74,7 +59,8 @@ export interface ClientOptions {
     stdLog?: (message: string) => void;
     errorLog?: (message: string) => void;
   };
-  crypt?: CryptConfig;
+  // Legacy: kept for backward compatibility, no-op in current implementation
+  crypt?: never;
   connectionDefaultSettings?: DefaultConnectionSettings;
   allowedUnencryptedConnectionSettings?: string[];
 }
@@ -182,7 +168,6 @@ export enum GuacamoleErrorCode {
   INACTIVITY_TIMEOUT = 'INACTIVITY_TIMEOUT',
   AUTHENTICATION_FAILED = 'AUTHENTICATION_FAILED',
   RESOURCE_NOT_FOUND = 'RESOURCE_NOT_FOUND',
-  INVALID_TOKEN = 'INVALID_TOKEN',
   INVALID_SESSION = 'INVALID_SESSION',
 }
 

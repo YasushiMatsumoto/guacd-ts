@@ -1,23 +1,19 @@
 # Core Module
 
-This module contains the core functionality of guacd-ts.
+Core bridge logic for guacd-ts.
 
-## File Structure
-
-- **server.ts** - Main server class. Manages WebSocket connections and routing to guacd
-- **client-connection.ts** - Manages individual client connections. Bridge between WebSocket ↔ guacd
-- **guacd-client.ts** - Manages TCP connection to guacd daemon
+## Files
+- `server.ts` – WebSocket server, session registry, routing to guacd.
+- `client-connection.ts` – WebSocket ↔ guacd bridge per client.
+- `guacd-client.ts` – TCP client to guacd, protocol handshake.
 
 ## Dependencies
+- `../types` – shared types/enums.
+- `../logging` – logger.
+- `../protocols` – Guacamole protocol parser.
 
-- `../types` - Type definitions
-- `../logging` - Logging functionality
-- `../crypto` - Encryption functionality
-- `../protocol` - Guacamole protocol parser
-
-## Usage Example
-
-```typescript
+## Usage
+```ts
 import { GuacdServer } from './core/server';
 
 const server = new GuacdServer(wsOptions, guacdOptions, clientOptions);

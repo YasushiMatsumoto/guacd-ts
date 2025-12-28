@@ -18,6 +18,7 @@ import { ConnectionSettings } from '../types';
  * Base connection builder with common functionality
  */
 abstract class BaseConnectionBuilder<T extends ProtocolConnectionParams> {
+  // Accumulated params for this builder
   protected params: Partial<T>;
 
   constructor(type: T['type']) {
@@ -195,6 +196,9 @@ export class RDPConnectionBuilder extends BaseConnectionBuilder<RDPConnectionPar
     if (!this.params.hostname) {
       errors.push('hostname is required');
     }
+    if (!this.params.username) {
+      errors.push('username is required');
+    }
 
     // Port validation
     if (this.params.port && (this.params.port < 1 || this.params.port > 65535)) {
@@ -208,6 +212,9 @@ export class RDPConnectionBuilder extends BaseConnectionBuilder<RDPConnectionPar
 
     if (this.params.password && !this.params.username) {
       warnings.push('Password provided without username');
+    }
+    if (this.params.security === 'nla' && !this.params.password) {
+      warnings.push('NLA selected but password is empty; authentication will fail');
     }
 
     return {
@@ -430,11 +437,11 @@ export class SSHConnectionBuilder extends BaseConnectionBuilder<SSHConnectionPar
     }
 
     if (!this.params.username) {
-      warnings.push('No username provided');
+      errors.push('username is required');
     }
 
     if (!this.params.password && !this.params['private-key']) {
-      warnings.push('No authentication method provided (password or private key)');
+      errors.push('Authentication required: provide password or private key');
     }
 
     return {
@@ -527,6 +534,10 @@ export class TelnetConnectionBuilder extends BaseConnectionBuilder<TelnetConnect
 
     if (this.params.port && (this.params.port < 1 || this.params.port > 65535)) {
       errors.push('port must be between 1 and 65535');
+    }
+
+    if (this.params.password && !this.params.username) {
+      warnings.push('Password provided without username');
     }
 
     return {
