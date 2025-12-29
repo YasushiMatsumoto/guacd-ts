@@ -98,6 +98,12 @@ export class ClientConnection extends EventEmitter {
     const messageString = message.toString();
     this.logger.verbose(`Received from WebSocket: ${messageString}`);
 
+    // Drop empty-opcode frames (0.) which guacd cannot handle
+    if (messageString.startsWith('0.')) {
+      this.logger.verbose('Dropping empty-opcode instruction from WebSocket');
+      return;
+    }
+
     if (this.guacdClient) {
       this.guacdClient.send(messageString, true);
     }
