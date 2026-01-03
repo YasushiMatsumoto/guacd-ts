@@ -237,6 +237,13 @@
                   </select>
                 </div>
               </div>
+              <div class="form-group">
+                <label>Wallpaper</label>
+                <select id="rdp-enable-wallpaper">
+                  <option value="false" selected>Disable (recommended)</option>
+                  <option value="true">Enable</option>
+                </select>
+              </div>
             </div>
 
             <div id="vnc-fields" class="protocol-fields">
@@ -257,7 +264,7 @@
             <div id="ssh-fields" class="protocol-fields">
               <div class="form-group">
                 <label>Hostname *</label>
-                <input type="text" id="ssh-hostname" value="rdp" />
+                <input type="text" id="ssh-hostname" value="ssh" />
               </div>
               <div class="form-group">
                 <label>Port</label>
@@ -265,11 +272,11 @@
               </div>
               <div class="form-group">
                 <label>Username</label>
-                <input type="text" id="ssh-username" value="root" />
+                <input type="text" id="ssh-username" value="sshuser" />
               </div>
               <div class="form-group">
                 <label>Password</label>
-                <input type="password" id="ssh-password" />
+                <input type="password" id="ssh-password" value="sshpass" />
               </div>
             </div>
           </div>
@@ -346,6 +353,10 @@
           params.port = parseInt(document.getElementById('ssh-port').value);
           params.username = document.getElementById('ssh-username').value;
           params.password = document.getElementById('ssh-password').value;
+          // Optional: terminal tuning
+          params['font-name'] = 'monospace';
+          params['font-size'] = 12;
+          params.scrollback = 1000;
         }
 
         try {
@@ -366,62 +377,78 @@
           const display = document.getElementById('display');
           display.innerHTML = '';
 
-          const wsUrl = data.wsUrl;
+          const wsBase = data.wsBase;      // <-- server returns wsBase only (e.g. ws://localhost:3000/ws)
           const sessionId = data.sessionId;
-          if (!wsUrl || !sessionId) throw new Error('Missing sessionId or wsUrl from server');
+          if (!wsBase || !sessionId) throw new Error('Missing sessionId or wsBase from server');
 
-          // Split base URL and query params to avoid double "?" additions by the tunnel
-          const [wsBase, queryPart] = wsUrl.split('?');
-          const connectParams = queryPart || `sessionId=${encodeURIComponent(sessionId)}`;
+          // Clean up any previous handlers to avoid double-send on reconnect
+          if (window.__guacResizeHandler) {
+            window.removeEventListener('resize', window.__guacResizeHandler);
+            window.__guacResizeHandler = null;
+          }
 
           tunnel = new Guacamole.WebSocketTunnel(wsBase);
           client = new Guacamole.Client(tunnel);
           display.appendChild(client.getDisplay().getElement());
+
+          const connectParams = `sessionId=${encodeURIComponent(sessionId)}`;
+
+          // Send initial display size only after tunnel is OPEN
+          const sendSizeNow = () => {
+            const rect = display.getBoundingClientRect();
+            const w = Math.max(1, Math.floor(rect.width));
+            const h = Math.max(1, Math.floor(rect.height));
+            client.sendSize(w, h);
+          };
 
           tunnel.onstatechange = (state) => {
             if (state === Guacamole.Tunnel.State.OPEN) {
               showStatus('Connected!', 'success');
               document.getElementById('disconnectBtn').disabled = false;
               updateStats();
+
+              // Initial size + resize hook (no leak)
+              sendSizeNow();
+              window.__guacResizeHandler = () => sendSizeNow();
+              window.addEventListener('resize', window.__guacResizeHandler);
             } else if (state === Guacamole.Tunnel.State.CLOSED) {
               showStatus('Disconnected', 'info');
               document.getElementById('connectBtn').disabled = false;
               document.getElementById('disconnectBtn').disabled = true;
               updateStats();
+
+              if (window.__guacResizeHandler) {
+                window.removeEventListener('resize', window.__guacResizeHandler);
+                window.__guacResizeHandler = null;
+              }
             }
           };
 
           client.onerror = (error) => {
-            showStatus('Error: ' + error.message, 'error');
+            showStatus('Error: ' + (error?.message || String(error)), 'error');
           };
 
           client.connect(connectParams);
 
-          // Send initial display size to server to avoid 0x0 resolution
-          const setSize = () => {
-            const displayRect = display.getBoundingClientRect();
-            const w = Math.floor(displayRect.width);
-            const h = Math.floor(displayRect.height);
-            client.sendSize(w, h);
-          };
-          setSize();
-          window.addEventListener('resize', setSize);
-
+          // Keyboard / mouse
           const keyboard = new Guacamole.Keyboard(document);
           keyboard.onkeydown = (k) => client.sendKeyEvent(1, k);
           keyboard.onkeyup = (k) => client.sendKeyEvent(0, k);
 
           const mouse = new Guacamole.Mouse(client.getDisplay().getElement());
-          mouse.onmousedown =
-            mouse.onmouseup =
-            mouse.onmousemove =
-              (m) => {
-                client.sendMouseState(m);
-              };
+          mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (m) => {
+            client.sendMouseState(m);
+          };
         } catch (error) {
-          showStatus('Error: ' + error.message, 'error');
+          showStatus('Error: ' + (error?.message || String(error)), 'error');
           document.getElementById('connectBtn').disabled = false;
+
+          if (window.__guacResizeHandler) {
+            window.removeEventListener('resize', window.__guacResizeHandler);
+            window.__guacResizeHandler = null;
+          }
         }
+
       }
 
       function disconnect() {

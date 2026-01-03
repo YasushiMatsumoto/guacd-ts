@@ -85,6 +85,7 @@ app.post('/api/session', async (req, res) => {
       height,
       security,
       'ignore-cert': ignoreCert,
+      'enable-wallpaper': enableWallpaper,
     } = req.body;
 
     if (!protocol || !hostname) {
@@ -103,7 +104,8 @@ app.post('/api/session', async (req, res) => {
         .port(port || 3389)
         .security(security || 'any')
         .ignoreCert(ignoreCert !== false)
-        .colorDepth(24);
+        .colorDepth(24)
+        .resize('display-update');
 
       if (!username || !password) {
         return res.status(400).json({
@@ -115,6 +117,16 @@ app.post('/api/session', async (req, res) => {
       builder.password(password);
       // Set sane display defaults to avoid 0x0 resolution
       if (domain) builder.domain(domain);
+      if (width) (builder as any).width?.(width);
+      if (height) (builder as any).height?.(height);
+      if (enableWallpaper !== undefined) {
+        builder.performanceFlags({ wallpaper: Boolean(enableWallpaper) });
+      }
+      // Disable GFX/caches to avoid blank screen issues
+      (builder as any)['disable-gfx'] = true;
+      (builder as any)['disable-bitmap-caching'] = true;
+      (builder as any)['disable-offscreen-caching'] = true;
+      (builder as any)['disable-glyph-caching'] = true;
 
       const validation = builder.validate();
       if (!validation.valid) {
@@ -132,15 +144,13 @@ app.post('/api/session', async (req, res) => {
         connectionSettings.settings.security = 'any';
       }
       // Ensure display params are present
-      if (connectionSettings.settings.width === undefined) {
-        connectionSettings.settings.width = width || 1280;
-      }
-      if (connectionSettings.settings.height === undefined) {
-        connectionSettings.settings.height = height || 720;
-      }
-      if (connectionSettings.settings.dpi === undefined) {
-        connectionSettings.settings.dpi = 96;
-      }
+      connectionSettings.settings.width = width || 1280;
+      connectionSettings.settings.height = height || 720;
+      connectionSettings.settings.dpi = 96;
+      connectionSettings.settings['disable-gfx'] = true;
+      connectionSettings.settings['disable-bitmap-caching'] = true;
+      connectionSettings.settings['disable-offscreen-caching'] = true;
+      connectionSettings.settings['disable-glyph-caching'] = true;
     } else if (protocol === 'vnc') {
       const builder = createConnectionBuilder('vnc')
         .hostname(hostname)
@@ -164,6 +174,9 @@ app.post('/api/session', async (req, res) => {
 
       if (username) builder.username(username);
       if (password) builder.password(password);
+      // Optional terminal tuning
+      builder.font('monospace', 12);
+      builder.scrollback(1000);
 
       const validation = builder.validate();
       if (!validation.valid) {
@@ -183,13 +196,11 @@ app.post('/api/session', async (req, res) => {
     // Issue session ID and keep connection details server-side
     const sessionId = await guacdServer.issueSession(connectionSettings, SESSION_TTL_MS);
     const wsHost = req.get('host') || `localhost:${PORT}`;
-    const wsUrl = `ws://${wsHost}/?sessionId=${encodeURIComponent(sessionId)}`;
-    const wsBase = `ws://${wsHost}/`;
+    const wsBase = `ws://${wsHost}/ws`;
 
     res.json({
       success: true,
       sessionId,
-      wsUrl,
       wsBase,
     });
   } catch (error) {

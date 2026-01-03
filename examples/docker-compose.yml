@@ -6,7 +6,9 @@ services:
     ports:
       - "4822:4822"
     environment:
-      - GUACD_LOG_LEVEL=debug
+      GUACD_LOG_LEVEL: debug
+    networks:
+      - guacnet
 
   rdp:
     build: ./rdp
@@ -15,4 +17,28 @@ services:
     ports:
       - "13389:3389"
     environment:
+      TZ: Asia/Tokyo
+    networks:
+      - guacnet
+
+  ssh:
+    build: ./ssh
+    container_name: demo-ssh
+    restart: unless-stopped
+    ports:
+      - "2222:22"
+    environment:
       - TZ=Asia/Tokyo
+      - SSH_USER=sshuser
+      - SSH_PASSWORD=sshpass
+    volumes:
+      - demo-ssh-hostkeys:/etc/ssh/hostkeys
+    networks:
+      - guacnet
+
+networks:
+  guacnet:
+    driver: bridge
+
+volumes:
+  demo-ssh-hostkeys:
