@@ -73,8 +73,6 @@ export class GuacamoleParser {
    * Convert instruction array to string
    */
   static toInstruction(parts: string[]): string {
-    return `${parts
-      .map((part) => `${Buffer.byteLength(part, 'utf8')}.${part}`)
-      .join(',')};`;
+    return `${parts.map((part) => `${Buffer.byteLength(part, 'utf8')}.${part}`).join(',')};`;
   }
 }
