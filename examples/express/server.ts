@@ -168,9 +168,13 @@ app.post('/api/session', async (req, res) => {
           .port(port || 22);
         if (username) builder.username(username);
         if (password) builder.password(password);
+        if (width) builder.width(width);
+        if (height) builder.height(height);
+        builder.dpi(96);
         // Optional terminal tuning
         builder.font('monospace', 12);
         builder.scrollback(1000);
+        builder.colorScheme('green-black');
         const validation = builder.validate();
         if (!validation.valid) {
           return res.status(400).json({
@@ -180,14 +184,41 @@ app.post('/api/session', async (req, res) => {
         }
 
         connectionSettings = builder.build();
-        connectionSettings.settings.width = width || 1280;
-        connectionSettings.settings.height = height || 720;
-        connectionSettings.settings.dpi = 96;
+        connectionSettings.settings.width = connectionSettings.settings.width || width || 1280;
+        connectionSettings.settings.height = connectionSettings.settings.height || height || 720;
+        connectionSettings.settings.dpi = connectionSettings.settings.dpi || 96;
+        break;
+      }
+      case 'telnet': {
+        const builder = createConnectionBuilder('telnet')
+          .hostname(hostname)
+          .port(port || 23);
+        if (username) builder.username(username);
+        if (password) builder.password(password);
+        if (width) builder.width(width);
+        if (height) builder.height(height);
+        builder.dpi(96);
+        // Optional terminal tuning
+        builder.font('monospace', 12);
+        builder.scrollback(1000);
+        builder.colorScheme('gray-black');
+        const validation = builder.validate();
+        if (!validation.valid) {
+          return res.status(400).json({
+            error: 'Invalid connection parameters',
+            details: validation.errors,
+          });
+        }
+
+        connectionSettings = builder.build();
+        connectionSettings.settings.width = connectionSettings.settings.width || width || 1280;
+        connectionSettings.settings.height = connectionSettings.settings.height || height || 720;
+        connectionSettings.settings.dpi = connectionSettings.settings.dpi || 96;
         break;
       }
       default:
         return res.status(400).json({
-          error: 'Unsupported protocol. Use: rdp, vnc, or ssh',
+          error: 'Unsupported protocol. Use: rdp, vnc, ssh, or telnet',
         });
     }
 

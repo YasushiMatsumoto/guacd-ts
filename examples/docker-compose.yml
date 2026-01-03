@@ -35,6 +35,19 @@ services:
       - demo-ssh-hostkeys:/etc/ssh/hostkeys
     networks:
       - guacnet
+  
+  telnet:
+    build:
+      context: ./telnet
+      args:
+        TELNET_USER: telnetuser
+        TELNET_PASSWORD: telnetpass
+    container_name: demo-telnet
+    restart: unless-stopped
+    ports:
+      - "12323:23"
+    networks:
+      - guacnet
 
 networks:
   guacnet:
