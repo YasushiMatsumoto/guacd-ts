@@ -12,6 +12,7 @@ import {
   ValidationResult,
   DEFAULT_PORTS,
   CommonConnectionParams,
+  TerminalColorScheme,
 } from './types';
 import { ConnectionSettings } from '../types';
 
@@ -467,7 +468,7 @@ export class SSHConnectionBuilder extends BaseConnectionBuilder<SSHConnectionPar
     return this;
   }
 
-  colorScheme(scheme: string): this {
+  colorScheme(scheme: TerminalColorScheme): this {
     this.params['color-scheme'] = scheme;
     return this;
   }
@@ -624,7 +625,7 @@ export class TelnetConnectionBuilder extends BaseConnectionBuilder<TelnetConnect
     return this;
   }
 
-  colorScheme(scheme: string): this {
+  colorScheme(scheme: TerminalColorScheme): this {
     this.params['color-scheme'] = scheme;
     return this;
   }
