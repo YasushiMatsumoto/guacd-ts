@@ -97,100 +97,98 @@ app.post('/api/session', async (req, res) => {
     // Use Protocol Builders for type-safe connection
     let connectionSettings: ConnectionSettings;
 
-    if (protocol === 'rdp') {
-      const targetHost = hostname || 'rdp';
-      const builder = createConnectionBuilder('rdp')
-        .hostname(targetHost)
-        .port(port || 3389)
-        .security(security || 'any')
-        .ignoreCert(ignoreCert !== false)
-        .colorDepth(24)
-        .resize('display-update');
+    switch (protocol) {
+      case 'rdp': {
+        const targetHost = hostname || 'rdp';
+        if (!username || !password) {
+          return res.status(400).json({
+            error: 'Username and password are required for RDP',
+          });
+        }
+        const builder = createConnectionBuilder('rdp')
+          .hostname(targetHost)
+          .port(port || 3389)
+          .security(security || 'any')
+          .ignoreCert(ignoreCert !== false)
+          .colorDepth(24)
+          .resize('display-update')
+          .username(username)
+          .password(password);
+        if (domain) builder.domain(domain);
+        if (width) (builder as any).width?.(width);
+        if (height) (builder as any).height?.(height);
+        if (enableWallpaper !== undefined) {
+          builder.performanceFlags({ wallpaper: Boolean(enableWallpaper) });
+        }
+        // Disable GFX / caches to avoid blank screen issues
+        (builder as any)['disable-gfx'] = true;
+        (builder as any)['disable-bitmap-caching'] = true;
+        (builder as any)['disable-offscreen-caching'] = true;
+        (builder as any)['disable-glyph-caching'] = true;
+        const validation = builder.validate();
+        if (!validation.valid) {
+          return res.status(400).json({
+            error: 'Invalid connection parameters',
+            details: validation.errors,
+          });
+        }
+        connectionSettings = builder.build();
+        // Ensure required fields
+        connectionSettings.settings.hostname = connectionSettings.settings.hostname || targetHost;
+        connectionSettings.settings.port = connectionSettings.settings.port || 3389;
+        connectionSettings.settings.security = connectionSettings.settings.security || 'any';
+        // Sane display defaults
+        connectionSettings.settings.width = width || 1280;
+        connectionSettings.settings.height = height || 720;
+        connectionSettings.settings.dpi = 96;
+        connectionSettings.settings['disable-gfx'] = true;
+        connectionSettings.settings['disable-bitmap-caching'] = true;
+        connectionSettings.settings['disable-offscreen-caching'] = true;
+        connectionSettings.settings['disable-glyph-caching'] = true;
+        break;
+      }
+      case 'vnc': {
+        const builder = createConnectionBuilder('vnc')
+          .hostname(hostname)
+          .port(port || 5900);
+        if (password) builder.password(password);
+        const validation = builder.validate();
+        if (!validation.valid) {
+          return res.status(400).json({
+            error: 'Invalid connection parameters',
+            details: validation.errors,
+          });
+        }
+        connectionSettings = builder.build();
+        break;
+      }
+      case 'ssh': {
+        const builder = createConnectionBuilder('ssh')
+          .hostname(hostname)
+          .port(port || 22);
+        if (username) builder.username(username);
+        if (password) builder.password(password);
+        // Optional terminal tuning
+        builder.font('monospace', 12);
+        builder.scrollback(1000);
+        const validation = builder.validate();
+        if (!validation.valid) {
+          return res.status(400).json({
+            error: 'Invalid connection parameters',
+            details: validation.errors,
+          });
+        }
 
-      if (!username || !password) {
+        connectionSettings = builder.build();
+        connectionSettings.settings.width = width || 1280;
+        connectionSettings.settings.height = height || 720;
+        connectionSettings.settings.dpi = 96;
+        break;
+      }
+      default:
         return res.status(400).json({
-          error: 'Username and password are required for RDP',
+          error: 'Unsupported protocol. Use: rdp, vnc, or ssh',
         });
-      }
-
-      builder.username(username);
-      builder.password(password);
-      // Set sane display defaults to avoid 0x0 resolution
-      if (domain) builder.domain(domain);
-      if (width) (builder as any).width?.(width);
-      if (height) (builder as any).height?.(height);
-      if (enableWallpaper !== undefined) {
-        builder.performanceFlags({ wallpaper: Boolean(enableWallpaper) });
-      }
-      // Disable GFX/caches to avoid blank screen issues
-      (builder as any)['disable-gfx'] = true;
-      (builder as any)['disable-bitmap-caching'] = true;
-      (builder as any)['disable-offscreen-caching'] = true;
-      (builder as any)['disable-glyph-caching'] = true;
-
-      const validation = builder.validate();
-      if (!validation.valid) {
-        return res.status(400).json({
-          error: 'Invalid connection parameters',
-          details: validation.errors,
-        });
-      }
-
-      connectionSettings = builder.build();
-      // Ensure required fields are present in settings
-      connectionSettings.settings.hostname = connectionSettings.settings.hostname || targetHost;
-      connectionSettings.settings.port = connectionSettings.settings.port || 3389;
-      if (!connectionSettings.settings.security) {
-        connectionSettings.settings.security = 'any';
-      }
-      // Ensure display params are present
-      connectionSettings.settings.width = width || 1280;
-      connectionSettings.settings.height = height || 720;
-      connectionSettings.settings.dpi = 96;
-      connectionSettings.settings['disable-gfx'] = true;
-      connectionSettings.settings['disable-bitmap-caching'] = true;
-      connectionSettings.settings['disable-offscreen-caching'] = true;
-      connectionSettings.settings['disable-glyph-caching'] = true;
-    } else if (protocol === 'vnc') {
-      const builder = createConnectionBuilder('vnc')
-        .hostname(hostname)
-        .port(port || 5900);
-
-      if (password) builder.password(password);
-
-      const validation = builder.validate();
-      if (!validation.valid) {
-        return res.status(400).json({
-          error: 'Invalid connection parameters',
-          details: validation.errors,
-        });
-      }
-
-      connectionSettings = builder.build();
-    } else if (protocol === 'ssh') {
-      const builder = createConnectionBuilder('ssh')
-        .hostname(hostname)
-        .port(port || 22);
-
-      if (username) builder.username(username);
-      if (password) builder.password(password);
-      // Optional terminal tuning
-      builder.font('monospace', 12);
-      builder.scrollback(1000);
-
-      const validation = builder.validate();
-      if (!validation.valid) {
-        return res.status(400).json({
-          error: 'Invalid connection parameters',
-          details: validation.errors,
-        });
-      }
-
-      connectionSettings = builder.build();
-    } else {
-      return res.status(400).json({
-        error: 'Unsupported protocol. Use: rdp, vnc, or ssh',
-      });
     }
 
     // Issue session ID and keep connection details server-side
