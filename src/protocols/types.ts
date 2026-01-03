@@ -58,6 +58,16 @@ export interface CommonConnectionParams {
 }
 
 /**
+ * Terminal color scheme presets or custom definition (see Guacamole docs)
+ */
+export type TerminalColorScheme =
+  | 'black-white'
+  | 'gray-black'
+  | 'green-black'
+  | 'white-black'
+  | string;
+
+/**
  * RDP (Remote Desktop Protocol) connection parameters
  * For Windows Remote Desktop connections
  */
@@ -205,13 +215,9 @@ export interface VNCConnectionParams extends CommonConnectionParams {
  * SSH (Secure Shell) connection parameters
  * For SSH terminal connections
  */
-export interface SSHConnectionParams {
+export interface SSHConnectionParams extends CommonConnectionParams {
   /** Protocol type */
   type: 'ssh';
-  /** Remote hostname or IP address */
-  hostname: string;
-  /** SSH port (default: 22) */
-  port?: number;
   /** Username for authentication */
   username?: string;
   /** Password for authentication */
@@ -233,7 +239,7 @@ export interface SSHConnectionParams {
   /** Font size */
   'font-size'?: number;
   /** Color scheme */
-  'color-scheme'?: string;
+  'color-scheme'?: TerminalColorScheme;
   /** Terminal type */
   'terminal-type'?: string;
   /** Locale */
@@ -275,13 +281,9 @@ export interface SSHConnectionParams {
  * Telnet connection parameters
  * For Telnet terminal connections
  */
-export interface TelnetConnectionParams {
+export interface TelnetConnectionParams extends CommonConnectionParams {
   /** Protocol type */
   type: 'telnet';
-  /** Remote hostname or IP address */
-  hostname: string;
-  /** Telnet port (default: 23) */
-  port?: number;
   /** Username for login */
   username?: string;
   /** Password for login */
@@ -299,7 +301,7 @@ export interface TelnetConnectionParams {
   /** Font size */
   'font-size'?: number;
   /** Color scheme */
-  'color-scheme'?: string;
+  'color-scheme'?: TerminalColorScheme;
   /** Terminal type */
   'terminal-type'?: string;
   /** Locale */

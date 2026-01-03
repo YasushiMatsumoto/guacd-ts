@@ -11,6 +11,7 @@ import {
   ProtocolConnectionParams,
   ValidationResult,
   DEFAULT_PORTS,
+  CommonConnectionParams,
 } from './types';
 import { ConnectionSettings } from '../types';
 
@@ -48,6 +49,19 @@ abstract class BaseConnectionBuilder<T extends ProtocolConnectionParams> {
         settings[key] = value;
       }
     });
+
+    // Apply display defaults for protocols that support negotiating size
+    const displayParams = this.params as Partial<CommonConnectionParams>;
+
+    if (displayParams.width === undefined) {
+      settings.width = 1280;
+    }
+    if (displayParams.height === undefined) {
+      settings.height = 720;
+    }
+    if (displayParams.dpi === undefined) {
+      settings.dpi = 96;
+    }
 
     return {
       type: this.params.type,
@@ -173,6 +187,25 @@ export class RDPConnectionBuilder extends BaseConnectionBuilder<RDPConnectionPar
   disableClipboard(disable: boolean = true): this {
     this.params['disable-copy'] = disable;
     this.params['disable-paste'] = disable;
+    return this;
+  }
+
+  disableCopy(disable: boolean = true): this {
+    this.params['disable-copy'] = disable;
+    return this;
+  }
+
+  disablePaste(disable: boolean = true): this {
+    this.params['disable-paste'] = disable;
+    return this;
+  }
+
+  /**
+   * Set multiple RDP parameters at once (excluding protocol type).
+   * Useful to cover fields not exposed as helpers.
+   */
+  withParams(params: Partial<Omit<RDPConnectionParams, 'type'>>): this {
+    this.params = { ...this.params, ...params };
     return this;
   }
 
@@ -308,9 +341,22 @@ export class VNCConnectionBuilder extends BaseConnectionBuilder<VNCConnectionPar
     return this;
   }
 
-  disableClipboard(disable: boolean = true): this {
+  disableCopy(disable: boolean = true): this {
     this.params['disable-copy'] = disable;
+    return this;
+  }
+
+  disablePaste(disable: boolean = true): this {
     this.params['disable-paste'] = disable;
+    return this;
+  }
+
+  /**
+   * Set multiple VNC parameters at once (excluding protocol type).
+   * Useful to cover any fields not exposed as helpers.
+   */
+  withParams(params: Partial<Omit<VNCConnectionParams, 'type'>>): this {
+    this.params = { ...this.params, ...params };
     return this;
   }
 
@@ -367,8 +413,10 @@ export class SSHConnectionBuilder extends BaseConnectionBuilder<SSHConnectionPar
   constructor() {
     super('ssh');
     this.params.port = DEFAULT_PORTS.ssh;
+    this.params['font-name'] = 'monospace';
     this.params['font-size'] = 12;
     this.params.scrollback = 1000;
+    this.params['color-scheme'] = 'gray-black';
     this.params['server-alive-interval'] = 30;
   }
 
@@ -389,6 +437,21 @@ export class SSHConnectionBuilder extends BaseConnectionBuilder<SSHConnectionPar
 
   password(password: string): this {
     this.params.password = password;
+    return this;
+  }
+
+  width(width: number): this {
+    this.params.width = width;
+    return this;
+  }
+
+  height(height: number): this {
+    this.params.height = height;
+    return this;
+  }
+
+  dpi(dpi: number): this {
+    this.params.dpi = dpi;
     return this;
   }
 
@@ -435,9 +498,22 @@ export class SSHConnectionBuilder extends BaseConnectionBuilder<SSHConnectionPar
     return this;
   }
 
-  disableClipboard(disable: boolean = true): this {
+  disableCopy(disable: boolean = true): this {
     this.params['disable-copy'] = disable;
+    return this;
+  }
+
+  disablePaste(disable: boolean = true): this {
     this.params['disable-paste'] = disable;
+    return this;
+  }
+
+  /**
+   * Set multiple SSH parameters at once (excluding protocol type).
+   * Useful to cover any fields not exposed as helpers.
+   */
+  withParams(params: Partial<Omit<SSHConnectionParams, 'type'>>): this {
+    this.params = { ...this.params, ...params };
     return this;
   }
 
@@ -458,6 +534,16 @@ export class SSHConnectionBuilder extends BaseConnectionBuilder<SSHConnectionPar
 
     if (this.params.port && (this.params.port < 1 || this.params.port > 65535)) {
       errors.push('port must be between 1 and 65535');
+    }
+
+    if (this.params.width && this.params.width <= 0) {
+      errors.push('width must be greater than 0');
+    }
+    if (this.params.height && this.params.height <= 0) {
+      errors.push('height must be greater than 0');
+    }
+    if (this.params.dpi && this.params.dpi <= 0) {
+      errors.push('dpi must be greater than 0');
     }
 
     if (!this.params.username) {
@@ -491,8 +577,10 @@ export class TelnetConnectionBuilder extends BaseConnectionBuilder<TelnetConnect
   constructor() {
     super('telnet');
     this.params.port = DEFAULT_PORTS.telnet;
+    this.params['font-name'] = 'monospace';
     this.params['font-size'] = 12;
     this.params.scrollback = 1000;
+    this.params['color-scheme'] = 'gray-black';
   }
 
   hostname(hostname: string): this {
@@ -512,6 +600,21 @@ export class TelnetConnectionBuilder extends BaseConnectionBuilder<TelnetConnect
 
   password(password: string): this {
     this.params.password = password;
+    return this;
+  }
+
+  width(width: number): this {
+    this.params.width = width;
+    return this;
+  }
+
+  height(height: number): this {
+    this.params.height = height;
+    return this;
+  }
+
+  dpi(dpi: number): this {
+    this.params.dpi = dpi;
     return this;
   }
 
@@ -542,9 +645,22 @@ export class TelnetConnectionBuilder extends BaseConnectionBuilder<TelnetConnect
     return this;
   }
 
-  disableClipboard(disable: boolean = true): this {
+  disableCopy(disable: boolean = true): this {
     this.params['disable-copy'] = disable;
+    return this;
+  }
+
+  disablePaste(disable: boolean = true): this {
     this.params['disable-paste'] = disable;
+    return this;
+  }
+
+  /**
+   * Set multiple Telnet parameters at once (excluding protocol type).
+   * Useful to cover any fields not exposed as helpers.
+   */
+  withParams(params: Partial<Omit<TelnetConnectionParams, 'type'>>): this {
+    this.params = { ...this.params, ...params };
     return this;
   }
 
@@ -558,6 +674,16 @@ export class TelnetConnectionBuilder extends BaseConnectionBuilder<TelnetConnect
 
     if (this.params.port && (this.params.port < 1 || this.params.port > 65535)) {
       errors.push('port must be between 1 and 65535');
+    }
+
+    if (this.params.width && this.params.width <= 0) {
+      errors.push('width must be greater than 0');
+    }
+    if (this.params.height && this.params.height <= 0) {
+      errors.push('height must be greater than 0');
+    }
+    if (this.params.dpi && this.params.dpi <= 0) {
+      errors.push('dpi must be greater than 0');
     }
 
     if (this.params.password && !this.params.username) {
