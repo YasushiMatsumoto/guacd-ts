@@ -11,13 +11,17 @@ services:
       - guacnet
 
   rdp:
-    build: ./rdp
+    build:
+      context: ./rdp
+      args:
+        RDP_USER: rdpuser
+        RDP_PASSWORD: rdppass
     container_name: demo-rdp
     restart: unless-stopped
     ports:
       - "13389:3389"
     environment:
-      TZ: Asia/Tokyo
+      - TZ=Asia/Tokyo
     networks:
       - guacnet
 

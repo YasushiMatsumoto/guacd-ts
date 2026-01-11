@@ -32,6 +32,12 @@ app.use(
 const PORT = process.env.PORT || 3000;
 const SESSION_TTL_MS = parseInt(process.env.SESSION_TTL_MS || '600000', 10); // default 10 minutes
 
+// RDP safe defaults (avoid black screen on initial connection)
+const RDP_INITIAL_WIDTH = parseInt(process.env.RDP_INITIAL_WIDTH || '1280', 10);
+const RDP_INITIAL_HEIGHT = parseInt(process.env.RDP_INITIAL_HEIGHT || '720', 10);
+const RDP_DPI = parseInt(process.env.RDP_DPI || '96', 10);
+const RDP_COLOR_DEPTH = parseInt(process.env.RDP_COLOR_DEPTH || '24', 10);
+
 // Initialize GuacdServer
 const guacdServer = new GuacdServer(
   {
@@ -66,6 +72,25 @@ guacdServer.on('error', (connection, error) => {
   console.error(`[${new Date().toISOString()}] Connection error: ${error.message}`);
 });
 
+function sanitizeNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const n = typeof value === 'string' ? parseInt(value, 10) : (value as number);
+  if (!Number.isFinite(n)) return undefined;
+  return n;
+}
+
+function logIssuedSession(connectionSettings: ConnectionSettings, sessionId: string) {
+  // Log only non-sensitive values (avoid printing password)
+  const s: Record<string, unknown> = { ...(connectionSettings.settings as any) };
+  if ('password' in s) s.password = '***';
+  if ('sftp-password' in s) (s as any)['sftp-password'] = '***';
+  if ('gateway-password' in s) (s as any)['gateway-password'] = '***';
+
+  console.log(`[${new Date().toISOString()}] Issued sessionId=${sessionId}`);
+  console.log(`[${new Date().toISOString()}] Connection settings (sanitized):`);
+  console.log(JSON.stringify(s, null, 2));
+}
+
 // API Routes
 
 /**
@@ -74,19 +99,23 @@ guacdServer.on('error', (connection, error) => {
  */
 app.post('/api/session', async (req, res) => {
   try {
-    const {
-      protocol,
-      hostname,
-      port,
-      username,
-      password,
-      domain,
-      width,
-      height,
-      security,
-      'ignore-cert': ignoreCert,
-      'enable-wallpaper': enableWallpaper,
-    } = req.body;
+    const body = req.body ?? {};
+
+    const protocol = body.protocol as string | undefined;
+    const hostname = body.hostname as string | undefined;
+    const port = sanitizeNumber(body.port);
+
+    const username = body.username as string | undefined;
+    const password = body.password as string | undefined;
+    const domain = body.domain as string | undefined;
+
+    const width = sanitizeNumber(body.width);
+    const height = sanitizeNumber(body.height);
+
+    const serverLayout = body['server-layout'] as string | undefined;
+    const security = body.security as string | undefined;
+    const ignoreCert = body['ignore-cert'] as boolean | undefined;
+    const enableWallpaper = body['enable-wallpaper'] as boolean | undefined;
 
     if (!protocol || !hostname) {
       return res.status(400).json({
@@ -94,37 +123,51 @@ app.post('/api/session', async (req, res) => {
       });
     }
 
-    // Use Protocol Builders for type-safe connection
     let connectionSettings: ConnectionSettings;
 
     switch (protocol) {
       case 'rdp': {
+        // IMPORTANT:
+        // - Do NOT use browser-provided width/height for initial connection.
+        // - Use safe fixed initial size to avoid black screen issues.
         const targetHost = hostname || 'rdp';
+
         if (!username || !password) {
           return res.status(400).json({
             error: 'Username and password are required for RDP',
           });
         }
+
         const builder = createConnectionBuilder('rdp')
           .hostname(targetHost)
           .port(port || 3389)
-          .security(security || 'any')
+          .security('any')
           .ignoreCert(ignoreCert !== false)
-          .colorDepth(24)
+          .colorDepth(RDP_COLOR_DEPTH as any)
+          .dpi(RDP_DPI)
           .resize('display-update')
           .username(username)
           .password(password);
+
+        // Force safe initial display (ignore req.width/req.height on initial connect)
+        builder.width(RDP_INITIAL_WIDTH);
+        builder.height(RDP_INITIAL_HEIGHT);
+
         if (domain) builder.domain(domain);
-        if (width) (builder as any).width?.(width);
-        if (height) (builder as any).height?.(height);
+
+        // Keylayout: prefer caller value, otherwise use a deterministic default
+        // NOTE: If this value is wrong for your stack, you'll see it in logs immediately.
+        builder.withParams({
+          'server-layout': serverLayout || 'ja-jp-qwerty',
+          'disable-gfx': true,
+          'enable-desktop-composition': false,
+          'enable-menu-animations': false,
+        });
+
         if (enableWallpaper !== undefined) {
           builder.performanceFlags({ wallpaper: Boolean(enableWallpaper) });
         }
-        // Disable GFX / caches to avoid blank screen issues
-        (builder as any)['disable-gfx'] = true;
-        (builder as any)['disable-bitmap-caching'] = true;
-        (builder as any)['disable-offscreen-caching'] = true;
-        (builder as any)['disable-glyph-caching'] = true;
+
         const validation = builder.validate();
         if (!validation.valid) {
           return res.status(400).json({
@@ -132,26 +175,18 @@ app.post('/api/session', async (req, res) => {
             details: validation.errors,
           });
         }
+
         connectionSettings = builder.build();
-        // Ensure required fields
-        connectionSettings.settings.hostname = connectionSettings.settings.hostname || targetHost;
-        connectionSettings.settings.port = connectionSettings.settings.port || 3389;
-        connectionSettings.settings.security = connectionSettings.settings.security || 'any';
-        // Sane display defaults
-        connectionSettings.settings.width = width || 1280;
-        connectionSettings.settings.height = height || 720;
-        connectionSettings.settings.dpi = 96;
-        connectionSettings.settings['disable-gfx'] = true;
-        connectionSettings.settings['disable-bitmap-caching'] = true;
-        connectionSettings.settings['disable-offscreen-caching'] = true;
-        connectionSettings.settings['disable-glyph-caching'] = true;
         break;
       }
+
       case 'vnc': {
         const builder = createConnectionBuilder('vnc')
           .hostname(hostname)
           .port(port || 5900);
+
         if (password) builder.password(password);
+
         const validation = builder.validate();
         if (!validation.valid) {
           return res.status(400).json({
@@ -159,22 +194,27 @@ app.post('/api/session', async (req, res) => {
             details: validation.errors,
           });
         }
+
         connectionSettings = builder.build();
         break;
       }
+
       case 'ssh': {
         const builder = createConnectionBuilder('ssh')
           .hostname(hostname)
           .port(port || 22);
+
         if (username) builder.username(username);
         if (password) builder.password(password);
-        if (width) builder.width(width);
-        if (height) builder.height(height);
+
+        // Terminal/display tuning
+        builder.width(width || 1280);
+        builder.height(height || 720);
         builder.dpi(96);
-        // Optional terminal tuning
         builder.font('monospace', 12);
         builder.scrollback(1000);
         builder.colorScheme('green-black');
+
         const validation = builder.validate();
         if (!validation.valid) {
           return res.status(400).json({
@@ -184,24 +224,24 @@ app.post('/api/session', async (req, res) => {
         }
 
         connectionSettings = builder.build();
-        connectionSettings.settings.width = connectionSettings.settings.width || width || 1280;
-        connectionSettings.settings.height = connectionSettings.settings.height || height || 720;
-        connectionSettings.settings.dpi = connectionSettings.settings.dpi || 96;
         break;
       }
+
       case 'telnet': {
         const builder = createConnectionBuilder('telnet')
           .hostname(hostname)
           .port(port || 23);
+
         if (username) builder.username(username);
         if (password) builder.password(password);
-        if (width) builder.width(width);
-        if (height) builder.height(height);
+
+        builder.width(width || 1280);
+        builder.height(height || 720);
         builder.dpi(96);
-        // Optional terminal tuning
         builder.font('monospace', 12);
         builder.scrollback(1000);
         builder.colorScheme('gray-black');
+
         const validation = builder.validate();
         if (!validation.valid) {
           return res.status(400).json({
@@ -211,11 +251,9 @@ app.post('/api/session', async (req, res) => {
         }
 
         connectionSettings = builder.build();
-        connectionSettings.settings.width = connectionSettings.settings.width || width || 1280;
-        connectionSettings.settings.height = connectionSettings.settings.height || height || 720;
-        connectionSettings.settings.dpi = connectionSettings.settings.dpi || 96;
         break;
       }
+
       default:
         return res.status(400).json({
           error: 'Unsupported protocol. Use: rdp, vnc, ssh, or telnet',
@@ -224,6 +262,10 @@ app.post('/api/session', async (req, res) => {
 
     // Issue session ID and keep connection details server-side
     const sessionId = await guacdServer.issueSession(connectionSettings, SESSION_TTL_MS);
+
+    // Log issued session with sanitized settings
+    logIssuedSession(connectionSettings, sessionId);
+
     const wsHost = req.get('host') || `localhost:${PORT}`;
     const wsBase = `ws://${wsHost}/ws`;
 
@@ -231,6 +273,11 @@ app.post('/api/session', async (req, res) => {
       success: true,
       sessionId,
       wsBase,
+      // For visibility/debug: tell client what initial RDP size is (non-binding)
+      rdpInitial:
+        protocol === 'rdp'
+          ? { width: RDP_INITIAL_WIDTH, height: RDP_INITIAL_HEIGHT, dpi: RDP_DPI }
+          : undefined,
     });
   } catch (error) {
     console.error('Session issuance error:', error);
@@ -280,6 +327,9 @@ httpServer.listen(PORT, () => {
   console.log(`WebSocket:    ws://localhost:${PORT}`);
   console.log(
     `Guacd:        ${process.env.GUACD_HOST || '127.0.0.1'}:${process.env.GUACD_PORT || '4822'}`
+  );
+  console.log(
+    `RDP initial:  ${RDP_INITIAL_WIDTH}x${RDP_INITIAL_HEIGHT} dpi=${RDP_DPI} bpp=${RDP_COLOR_DEPTH}`
   );
   console.log('---------------------------------------------');
   console.log('\nAPI Endpoints:');

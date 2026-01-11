@@ -142,6 +142,12 @@ export interface RDPConnectionParams extends CommonConnectionParams {
   'disable-paste'?: boolean;
   /** Normalized clipboard */
   'normalize-clipboard'?: 'preserve' | 'unix' | 'windows';
+  'disable-gfx'?: boolean;
+  'disable-bitmap-caching'?: boolean;
+  'disable-offscreen-caching'?: boolean;
+  'disable-glyph-caching'?: boolean;
+  'enable-desktop-composition'?: boolean;
+  'enable-menu-animations'?: boolean;
   /** WOL (Wake-on-LAN) settings */
   'wol-send-packet'?: boolean;
   'wol-mac-addr'?: string;
