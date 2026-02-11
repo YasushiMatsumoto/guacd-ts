@@ -98,8 +98,10 @@ export class GuacdClient extends EventEmitter {
   private handleData(data: Buffer): void {
     this.lastActivity = Date.now();
     const dataString = data.toString('utf8');
-    const level = this.handshakeComplete ? 'verbose' : 'debug';
-    this.logger[level as 'verbose' | 'debug']?.(`Received from guacd: ${dataString}`);
+
+    // TEMP: Always debug until black-screen is resolved
+    this.logger.debug?.(`Received from guacd: ${dataString}`);
+
     this.parser.receive(dataString);
   }
 
@@ -190,7 +192,7 @@ export class GuacdClient extends EventEmitter {
         }
       }
 
-      // Send connection ID to client with empty opcode
+      // Keep existing behavior for now (matches guacamole-lite approach)
       this.emit('data', GuacamoleParser.toInstruction(['', this.guacamoleConnectionId]));
       return;
     }
@@ -200,72 +202,115 @@ export class GuacdClient extends EventEmitter {
   }
 
   /**
-   * Send handshake reply
+   * Pick the highest VERSION_* token from server handshake.
+   * Returns version string like "1_5_0" or null if none found.
    */
-  private sendHandshakeReply(serverHandshake: string[]): void {
-    const settings = this.connectionSettings.settings;
-    const handshakeReply: string[] = [];
+  private pickProtocolVersion(serverHandshake: string[]): string | null {
+    const versions = serverHandshake
+      .filter((x) => x.startsWith('VERSION_'))
+      .map((x) => x.substring('VERSION_'.length));
 
-    // Send client capabilities before final connect per Guacamole protocol
-    this.sendClientCapabilities();
+    if (versions.length === 0) return null;
 
-    serverHandshake.forEach((paramName) => {
-      // Echo version tokens directly (e.g., VERSION_1_5_0)
-      if (paramName.toUpperCase().startsWith('VERSION')) {
-        handshakeReply.push(paramName);
-        return;
+    const parse = (v: string): number[] => v.split('_').map((n) => Number(n) || 0);
+
+    versions.sort((a, b) => {
+      const aa = parse(a);
+      const bb = parse(b);
+      for (let i = 0; i < Math.max(aa.length, bb.length); i++) {
+        const da = aa[i] ?? 0;
+        const db = bb[i] ?? 0;
+        if (da !== db) return db - da; // desc
       }
-
-      const value = settings[paramName];
-      if (value !== undefined) {
-        if (Array.isArray(value)) {
-          handshakeReply.push(value.join(','));
-        } else {
-          handshakeReply.push(String(value));
-        }
-      } else {
-        handshakeReply.push('');
-      }
+      return 0;
     });
 
-    this.sendInstruction(['connect', ...handshakeReply]);
+    return versions[0];
   }
 
   /**
-   * Send client capabilities (size, audio/video/image, timezone/name) before connect
+   * Check if protocolVersion is >= major.minor (patch ignored).
    */
-  private sendClientCapabilities(): void {
-    const s = this.connectionSettings.settings;
+  private isAtLeast(protocolVersion: string | null, major: number, minor: number): boolean {
+    if (!protocolVersion) return false;
+    const parts = protocolVersion.split('_').map((n) => Number(n) || 0);
+    const maj = parts[0] ?? 0;
+    const min = parts[1] ?? 0;
+    return maj > major || (maj === major && min >= minor);
+  }
 
-    // Display size: use provided or defaults ensured upstream
-    const width = s.width ?? '';
-    const height = s.height ?? '';
-    const dpi = s.dpi ?? '';
+  /**
+   * Send handshake reply
+   *
+   * IMPORTANT:
+   * - Do not blindly echo VERSION_* tokens.
+   * - Choose exactly one VERSION_* and respond with it.
+   * - Build connect args with the exact arity/order of serverHandshake.
+   */
+  private sendHandshakeReply(serverHandshake: string[]): void {
+    const settings = this.connectionSettings.settings as Record<string, unknown>;
+
+    const picked = this.pickProtocolVersion(serverHandshake);
+    const protocolToken = picked ? `VERSION_${picked}` : '';
+
+    // Send client capabilities BEFORE connect
+    this.sendClientCapabilities(picked);
+
+    // Build connect args in the exact order/arity of serverHandshake
+    const connectArgs: string[] = serverHandshake.map((argName) => {
+      if (argName.startsWith('VERSION_')) {
+        return protocolToken;
+      }
+
+      const value = settings[argName];
+      if (value === null || value === undefined) return '';
+      if (Array.isArray(value)) return value.map(String).join(',');
+      return String(value);
+    });
+
+    this.sendInstruction(['connect', ...connectArgs]);
+  }
+
+  /**
+   * Send client capabilities (size, audio/video/image, timezone) before connect
+   */
+  private sendClientCapabilities(protocolVersion: string | null): void {
+    const s = this.connectionSettings.settings as Record<string, unknown>;
+
+    // Use stable defaults instead of empty strings
+    const width = s.width ?? 1024;
+    const height = s.height ?? 768;
+    const dpi = s.dpi ?? 96;
     this.sendInstruction(['size', String(width), String(height), String(dpi)]);
 
-    // Media support lists (empty is allowed)
+    // Media support lists
     const audioList = this.toList(s.audio);
     const videoList = this.toList(s.video);
-    const imageList = this.toList(s.image) || ['image/png', 'image/jpeg'];
+
+    // Fix: default fallback must apply when list is empty
+    const imageListRaw = this.toList(s.image);
+    const imageList = imageListRaw.length > 0 ? imageListRaw : ['image/png', 'image/jpeg'];
 
     this.sendInstruction(['audio', ...audioList]);
     this.sendInstruction(['video', ...videoList]);
     this.sendInstruction(['image', ...imageList]);
 
-    // Optional timezone / display name
-    if (s['timezone']) {
-      this.sendInstruction(['timezone', String(s['timezone'])]);
+    // timezone is valid for 1.1.0+ (so 1.5.0 also OK)
+    if (this.isAtLeast(protocolVersion, 1, 1)) {
+      const tz = s.timezone;
+      if (tz !== null && tz !== undefined && String(tz).length > 0) {
+        this.sendInstruction(['timezone', String(tz)]);
+      }
     }
-    if (s['name']) {
-      this.sendInstruction(['name', String(s['name'])]);
-    }
+
+    // NOTE: Do not send 'name' here to reduce variables (and match guacamole-lite closer)
   }
 
-  private toList(value: string | string[] | number | boolean | undefined): string[] {
+  private toList(value: unknown): string[] {
     if (Array.isArray(value)) {
       return value.map((v) => String(v));
     }
-    if (value === undefined) return [];
+    if (value === undefined || value === null) return [];
     const str = String(value);
     if (!str.length) return [];
     return [str];

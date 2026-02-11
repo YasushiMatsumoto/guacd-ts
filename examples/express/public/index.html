@@ -250,15 +250,69 @@
             <div id="vnc-fields" class="protocol-fields">
               <div class="form-group">
                 <label>Hostname *</label>
-                <input type="text" id="vnc-hostname" value="rdp" />
+                <input type="text" id="vnc-hostname" value="vnc" />
               </div>
               <div class="form-group">
                 <label>Port</label>
                 <input type="number" id="vnc-port" value="5900" />
               </div>
               <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="vnc-username" placeholder="Optional" />
+              </div>
+              <div class="form-group">
                 <label>Password</label>
-                <input type="password" id="vnc-password" />
+                <input type="password" id="vnc-password" value="vncpass"/>
+              </div>
+              <div class="row">
+                <div class="form-group">
+                  <label>Cursor</label>
+                  <select id="vnc-cursor">
+                    <option value="remote" selected>remote</option>
+                    <option value="local">local</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Color Depth</label>
+                  <select id="vnc-color-depth">
+                    <option value="32">32</option>
+                    <option value="24" selected>24</option>
+                    <option value="16">16</option>
+                    <option value="8">8</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row">
+                <div class="form-group">
+                  <label>Swap Red/Blue</label>
+                  <select id="vnc-swap-red-blue">
+                    <option value="false" selected>false</option>
+                    <option value="true">true</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Read Only</label>
+                  <select id="vnc-read-only">
+                    <option value="false" selected>false</option>
+                    <option value="true">true</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row">
+                <div class="form-group">
+                  <label>Disable Copy</label>
+                  <select id="vnc-disable-copy">
+                    <option value="false" selected>false</option>
+                    <option value="true">true</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Disable Paste</label>
+                  <select id="vnc-disable-paste">
+                    <option value="false" selected>false</option>
+                    <option value="true">true</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -387,7 +441,15 @@
         } else if (protocol === 'vnc') {
           params.hostname = document.getElementById('vnc-hostname').value;
           params.port = parseInt(document.getElementById('vnc-port').value);
+          const vncUsername = document.getElementById('vnc-username').value;
+          if (vncUsername) params.username = vncUsername;
           params.password = document.getElementById('vnc-password').value;
+          params.cursor = document.getElementById('vnc-cursor').value;
+          params['color-depth'] = parseInt(document.getElementById('vnc-color-depth').value);
+          params['swap-red-blue'] = document.getElementById('vnc-swap-red-blue').value === 'true';
+          params['read-only'] = document.getElementById('vnc-read-only').value === 'true';
+          params['disable-copy'] = document.getElementById('vnc-disable-copy').value === 'true';
+          params['disable-paste'] = document.getElementById('vnc-disable-paste').value === 'true';
         } else if (protocol === 'ssh') {
           params.hostname = document.getElementById('ssh-hostname').value;
           params.port = parseInt(document.getElementById('ssh-port').value);

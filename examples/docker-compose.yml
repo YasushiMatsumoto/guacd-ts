@@ -39,7 +39,7 @@ services:
       - demo-ssh-hostkeys:/etc/ssh/hostkeys
     networks:
       - guacnet
-  
+
   telnet:
     build:
       context: ./telnet
@@ -50,6 +50,20 @@ services:
     restart: unless-stopped
     ports:
       - "12323:23"
+    networks:
+      - guacnet
+
+  vnc:
+    build:
+      context: ./vnc
+      args:
+        VNC_PASSWORD: vncpass
+    container_name: demo-vnc
+    restart: unless-stopped
+    ports:
+      - "15900:5900"
+    environment:
+      - TZ=Asia/Tokyo
     networks:
       - guacnet
 

@@ -113,9 +113,15 @@ app.post('/api/session', async (req, res) => {
     const height = sanitizeNumber(body.height);
 
     const serverLayout = body['server-layout'] as string | undefined;
-    const security = body.security as string | undefined;
     const ignoreCert = body['ignore-cert'] as boolean | undefined;
     const enableWallpaper = body['enable-wallpaper'] as boolean | undefined;
+
+    const cursor = body.cursor as string | undefined;
+    const swapRedBlue = body['swap-red-blue'] as boolean | undefined;
+    const readOnly = body['read-only'] as boolean | undefined;
+    const disableCopy = body['disable-copy'] as boolean | undefined;
+    const disablePaste = body['disable-paste'] as boolean | undefined;
+    const colorDepth = sanitizeNumber(body['color-depth']);
 
     if (!protocol || !hostname) {
       return res.status(400).json({
@@ -185,7 +191,14 @@ app.post('/api/session', async (req, res) => {
           .hostname(hostname)
           .port(port || 5900);
 
+        if (username) builder.username(username);
         if (password) builder.password(password);
+        if (cursor) builder.cursor(cursor as any);
+        if (colorDepth) builder.colorDepth(colorDepth as any);
+        if (swapRedBlue !== undefined) builder.swapRedBlue(Boolean(swapRedBlue));
+        if (readOnly !== undefined) builder.readOnly(Boolean(readOnly));
+        if (disableCopy !== undefined) builder.disableCopy(Boolean(disableCopy));
+        if (disablePaste !== undefined) builder.disablePaste(Boolean(disablePaste));
 
         const validation = builder.validate();
         if (!validation.valid) {
