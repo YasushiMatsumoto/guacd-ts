@@ -1,14 +1,35 @@
+// eslint.config.mjs
+import tsParser from '@typescript-eslint/parser';
 import tseslint from '@typescript-eslint/eslint-plugin';
-import tsparser from '@typescript-eslint/parser';
-import prettier from 'eslint-plugin-prettier';
+import eslintConfigPrettier from 'eslint-config-prettier';
+
+const tsTypeCheckedRules = {
+  // These require type information
+  '@typescript-eslint/no-floating-promises': 'error',
+  '@typescript-eslint/no-misused-promises': 'error',
+};
+
+const commonTsRules = {
+  '@typescript-eslint/no-unused-vars': [
+    'error',
+    { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+  ],
+  '@typescript-eslint/no-explicit-any': 'error',
+  '@typescript-eslint/explicit-function-return-type': 'warn',
+  'no-console': ['warn', { allow: ['warn', 'error'] }],
+};
 
 export default [
-  // src用の設定（厳密な型チェック）
+  // Global ignores
+  {
+    ignores: ['dist/**', 'node_modules/**'],
+  },
+
+  // src (strict + type-aware)
   {
     files: ['src/**/*.ts'],
-    ignores: ['dist/**', 'node_modules/**'],
     languageOptions: {
-      parser: tsparser,
+      parser: tsParser,
       parserOptions: {
         ecmaVersion: 2020,
         sourceType: 'module',
@@ -18,27 +39,23 @@ export default [
     },
     plugins: {
       '@typescript-eslint': tseslint,
-      prettier,
     },
     rules: {
-      'prettier/prettier': 'error',
-      '@typescript-eslint/explicit-function-return-type': 'warn',
-      '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
-      ],
-      '@typescript-eslint/no-floating-promises': 'error',
-      '@typescript-eslint/no-misused-promises': 'error',
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      // Base recommended sets (explicitly applied)
+      ...tseslint.configs.recommended.rules,
+      ...tseslint.configs['recommended-type-checked'].rules,
+
+      // Your policy
+      ...commonTsRules,
+      ...tsTypeCheckedRules,
     },
   },
-  // examples用の設定（型チェックあり、ルール緩め）
+
+  // examples (type-aware is OK, but rules relaxed)
   {
     files: ['examples/**/*.ts'],
-    ignores: ['**/node_modules/**'],
     languageOptions: {
-      parser: tsparser,
+      parser: tsParser,
       parserOptions: {
         ecmaVersion: 2020,
         sourceType: 'module',
@@ -48,19 +65,24 @@ export default [
     },
     plugins: {
       '@typescript-eslint': tseslint,
-      prettier,
     },
     rules: {
-      'prettier/prettier': 'error',
+      ...tseslint.configs.recommended.rules,
+      ...tseslint.configs['recommended-type-checked'].rules,
+
+      // Relaxed policy for examples
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-misused-promises': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
-      '@typescript-eslint/no-floating-promises': 'off',
-      '@typescript-eslint/no-misused-promises': 'off',
       'no-console': 'off',
     },
   },
+
+  // Disable ESLint rules that conflict with Prettier formatting
+  eslintConfigPrettier,
 ];
