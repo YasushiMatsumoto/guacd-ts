@@ -1,49 +1,55 @@
-import { Logger, createLogger } from '../../logging/logger';
-import { LogLevel } from '../../types';
+import { DefaultLogger, LogLevel, createDefaultLogger } from '../../logging/logger';
 
-describe('Logger', () => {
+describe('DefaultLogger', () => {
   let stdLogMock: jest.Mock;
   let errorLogMock: jest.Mock;
-  let logger: Logger;
+  let logger: DefaultLogger;
 
   beforeEach(() => {
     stdLogMock = jest.fn();
     errorLogMock = jest.fn();
-    logger = new Logger(LogLevel.VERBOSE, stdLogMock, errorLogMock);
+    logger = new DefaultLogger(LogLevel.VERBOSE, stdLogMock, errorLogMock);
   });
 
   describe('log levels', () => {
     it('should log error messages', () => {
-      logger.error('Test error', 'extra');
+      logger.error('Test error');
       expect(errorLogMock).toHaveBeenCalledTimes(1);
-      expect(errorLogMock.mock.calls[0][0]).toContain('[ERROR]');
-      expect(errorLogMock.mock.calls[0][0]).toContain('Test error');
-      expect(errorLogMock.mock.calls[0][0]).toContain('extra');
+      expect(errorLogMock).toHaveBeenCalledWith(expect.stringContaining('[ERROR]'));
+      expect(errorLogMock).toHaveBeenCalledWith(expect.stringContaining('Test error'));
+    });
+
+    it('should log error messages with context', () => {
+      logger.error('Test error', { extra: 'info' });
+      expect(errorLogMock).toHaveBeenCalledTimes(1);
+      expect(errorLogMock).toHaveBeenCalledWith(expect.stringContaining('[ERROR]'));
+      expect(errorLogMock).toHaveBeenCalledWith(expect.stringContaining('Test error'));
+      expect(errorLogMock).toHaveBeenCalledWith(expect.stringContaining('"extra":"info"'));
     });
 
     it('should log warn messages', () => {
       logger.warn('Test warning');
       expect(stdLogMock).toHaveBeenCalledTimes(1);
-      expect(stdLogMock.mock.calls[0][0]).toContain('[WARN]');
-      expect(stdLogMock.mock.calls[0][0]).toContain('Test warning');
+      expect(stdLogMock).toHaveBeenCalledWith(expect.stringContaining('[WARN]'));
+      expect(stdLogMock).toHaveBeenCalledWith(expect.stringContaining('Test warning'));
     });
 
     it('should log info messages', () => {
       logger.info('Test info');
       expect(stdLogMock).toHaveBeenCalledTimes(1);
-      expect(stdLogMock.mock.calls[0][0]).toContain('[INFO]');
+      expect(stdLogMock).toHaveBeenCalledWith(expect.stringContaining('[INFO]'));
     });
 
     it('should log debug messages', () => {
       logger.debug('Test debug');
       expect(stdLogMock).toHaveBeenCalledTimes(1);
-      expect(stdLogMock.mock.calls[0][0]).toContain('[DEBUG]');
+      expect(stdLogMock).toHaveBeenCalledWith(expect.stringContaining('[DEBUG]'));
     });
 
     it('should log verbose messages', () => {
       logger.verbose('Test verbose');
       expect(stdLogMock).toHaveBeenCalledTimes(1);
-      expect(stdLogMock.mock.calls[0][0]).toContain('[VERBOSE]');
+      expect(stdLogMock).toHaveBeenCalledWith(expect.stringContaining('[VERBOSE]'));
     });
   });
 
@@ -68,20 +74,20 @@ describe('Logger', () => {
     });
   });
 
-  describe('createLogger', () => {
+  describe('createDefaultLogger', () => {
     it('should create logger with string level', () => {
-      const logger = createLogger({ level: 'DEBUG' });
-      expect(logger).toBeInstanceOf(Logger);
+      const created = createDefaultLogger({ level: 'DEBUG' });
+      expect(created).toBeInstanceOf(DefaultLogger);
     });
 
     it('should create logger with numeric level', () => {
-      const logger = createLogger({ level: LogLevel.INFO });
-      expect(logger).toBeInstanceOf(Logger);
+      const created = createDefaultLogger({ level: LogLevel.INFO });
+      expect(created).toBeInstanceOf(DefaultLogger);
     });
 
     it('should create logger with default level', () => {
-      const logger = createLogger();
-      expect(logger).toBeInstanceOf(Logger);
+      const created = createDefaultLogger();
+      expect(created).toBeInstanceOf(DefaultLogger);
     });
   });
 });

@@ -1,114 +1,113 @@
 /**
- * Protocol detection and utility functions
+ * Protocol detection and utility functions.
+ *
+ * @packageDocumentation
  */
 
-import { ProtocolTypeLiteral, DEFAULT_PORTS } from './types';
+import type { ProtocolType } from '../types';
+import { DEFAULT_PORTS } from './types';
 
 /**
- * Detect protocol type from port number
+ * Detect protocol type from a well-known port number.
+ *
+ * @returns The matching protocol, or `null` if the port is not recognised.
  */
-export function detectProtocolFromPort(port: number): ProtocolTypeLiteral | null {
-  const portToProtocol: Record<number, ProtocolTypeLiteral> = {
+export function detectProtocolFromPort(port: number): ProtocolType | null {
+  const portToProtocol: Record<number, ProtocolType> = {
     [DEFAULT_PORTS.rdp]: 'rdp',
     [DEFAULT_PORTS.vnc]: 'vnc',
     [DEFAULT_PORTS.ssh]: 'ssh',
     [DEFAULT_PORTS.telnet]: 'telnet',
-    [DEFAULT_PORTS.kubernetes]: 'kubernetes',
     // Common VNC alternative ports
     5901: 'vnc',
     5902: 'vnc',
     5903: 'vnc',
   };
 
-  return portToProtocol[port] || null;
+  return portToProtocol[port] ?? null;
 }
 
 /**
- * Get default port for protocol
+ * Get the default port for a given protocol.
  */
-export function getDefaultPort(protocol: ProtocolTypeLiteral): number {
+export function getDefaultPort(protocol: ProtocolType): number {
   return DEFAULT_PORTS[protocol];
 }
 
 /**
- * Check if protocol supports file transfer
+ * Whether the protocol supports SFTP / drive file transfer.
  */
-export function supportsFileTransfer(protocol: ProtocolTypeLiteral): boolean {
+export function supportsFileTransfer(protocol: ProtocolType): boolean {
   return ['rdp', 'vnc', 'ssh'].includes(protocol);
 }
 
 /**
- * Check if protocol supports audio
+ * Whether the protocol supports audio playback.
  */
-export function supportsAudio(protocol: ProtocolTypeLiteral): boolean {
+export function supportsAudio(protocol: ProtocolType): boolean {
   return ['rdp', 'vnc'].includes(protocol);
 }
 
 /**
- * Check if protocol is terminal-based
+ * Whether the protocol renders a text terminal.
  */
-export function isTerminalProtocol(protocol: ProtocolTypeLiteral): boolean {
-  return ['ssh', 'telnet', 'kubernetes'].includes(protocol);
+export function isTerminalProtocol(protocol: ProtocolType): boolean {
+  return ['ssh', 'telnet'].includes(protocol);
 }
 
 /**
- * Check if protocol is graphical
+ * Whether the protocol renders a graphical desktop.
  */
-export function isGraphicalProtocol(protocol: ProtocolTypeLiteral): boolean {
+export function isGraphicalProtocol(protocol: ProtocolType): boolean {
   return ['rdp', 'vnc'].includes(protocol);
 }
 
 /**
- * Get protocol display name
+ * Human-readable display name for a protocol.
  */
-export function getProtocolDisplayName(protocol: ProtocolTypeLiteral): string {
-  const names: Record<ProtocolTypeLiteral, string> = {
+export function getProtocolDisplayName(protocol: ProtocolType): string {
+  const names: Record<ProtocolType, string> = {
     rdp: 'Remote Desktop (RDP)',
     vnc: 'VNC',
     ssh: 'SSH',
     telnet: 'Telnet',
-    kubernetes: 'Kubernetes',
   };
   return names[protocol];
 }
 
 /**
- * Get recommended color depth for protocol
+ * Recommended colour depth for graphical protocols, or `null` for
+ * terminal-based ones.
  */
-export function getRecommendedColorDepth(protocol: ProtocolTypeLiteral): 8 | 16 | 24 | 32 | null {
-  if (protocol === 'rdp') return 24;
-  if (protocol === 'vnc') return 24;
+export function getRecommendedColorDepth(protocol: ProtocolType): 8 | 16 | 24 | 32 | null {
+  if (protocol === 'rdp' || protocol === 'vnc') return 24;
   return null;
 }
 
 /**
- * Parse connection string (e.g., "rdp://hostname:3389" or "rdp://user:pass@host:3389")
+ * Parse a connection URI such as `rdp://user:pass@host:3389`.
  */
 export function parseConnectionString(connectionString: string): {
-  protocol: ProtocolTypeLiteral | null;
+  protocol: ProtocolType | null;
   hostname: string;
   port?: number;
   username?: string;
   password?: string;
 } | null {
   try {
-    const url = new URL(connectionString);
-    const protocol = url.protocol.replace(':', '') as ProtocolTypeLiteral;
+    const parsed = new URL(connectionString);
+    const protocol = parsed.protocol.replace(':', '') as ProtocolType;
 
-    // Validate protocol
-    if (!Object.keys(DEFAULT_PORTS).includes(protocol)) {
-      return null;
-    }
+    if (!(protocol in DEFAULT_PORTS)) return null;
 
-    // Handle IPv6 addresses - remove brackets
-    const hostname = url.hostname.replace(/^\[|\]$/g, '');
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
 
     return {
       protocol,
       hostname,
-      port: url.port ? parseInt(url.port, 10) : undefined,
-      username: url.username ? decodeURIComponent(url.username) : undefined,
-      password: url.password ? decodeURIComponent(url.password) : undefined,
+      port: parsed.port ? parseInt(parsed.port, 10) : undefined,
+      username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+      password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
     };
   } catch {
     return null;

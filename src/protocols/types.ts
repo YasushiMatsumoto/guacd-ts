@@ -1,433 +1,483 @@
 /**
- * Protocol-specific type definitions for Guacamole connections
- * Based on Apache Guacamole protocol documentation
+ * Protocol-specific type definitions for Guacamole connections.
+ *
+ * All parameter interfaces are derived from the
+ * [Apache Guacamole manual](https://guacamole.apache.org/doc/gug/)
+ * and aim for **complete coverage** of each protocol's connection
+ * parameters.
+ *
+ * @packageDocumentation
  */
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared mixin interfaces
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
- * Common connection parameters shared across all protocols
+ * Parameters common to **every** protocol: network target, clipboard
+ * control, Wake-on-LAN, and session recording.
  */
-export interface CommonConnectionParams {
-  /** Remote hostname or IP address */
+export interface BaseConnectionParams {
+  /** Remote hostname or IP address. */
   hostname: string;
-  /** Remote port (protocol-specific default if not specified) */
+  /** Remote port (protocol-specific default if omitted). */
   port?: number;
-  /** Desired display width (if supported by protocol) */
-  width?: number;
-  /** Desired display height (if supported by protocol) */
-  height?: number;
-  /** Display DPI (if supported by protocol) */
-  dpi?: number;
-  /** Enable or disable audio (client-side) */
-  'enable-audio'?: boolean;
-  /** Enable or disable printing */
-  'enable-printing'?: boolean;
-  /** Name of printer to use for redirection */
-  'printer-name'?: string;
-  /** Enable wallpaper rendering */
-  'enable-wallpaper'?: boolean;
-  /** Enable theming */
-  'enable-theming'?: boolean;
-  /** Enable font smoothing */
-  'enable-font-smoothing'?: boolean;
-  /** Enable full window drag */
-  'enable-full-window-drag'?: boolean;
-  /** Disable bitmap caching */
-  'disable-bitmap-caching'?: boolean;
-  /** Disable offscreen caching */
-  'disable-offscreen-caching'?: boolean;
-  /** Disable glyph caching */
-  'disable-glyph-caching'?: boolean;
-  /** Color depth (8, 16, 24, 32) */
-  'color-depth'?: 8 | 16 | 24 | 32;
-  /** Force lossless compression */
-  'force-lossless'?: boolean;
-  /** Recording path for session recording */
+
+  // -- Clipboard ----------------------------------------------------------
+  /** Disable copying from the remote desktop to the client. */
+  'disable-copy'?: boolean;
+  /** Disable pasting from the client to the remote desktop. */
+  'disable-paste'?: boolean;
+
+  // -- Wake-on-LAN -------------------------------------------------------
+  /** Send a WoL magic packet before connecting. */
+  'wol-send-packet'?: boolean;
+  /** MAC address for the WoL packet. */
+  'wol-mac-addr'?: string;
+  /** Broadcast address for the WoL packet. */
+  'wol-broadcast-addr'?: string;
+  /** UDP port for the WoL packet (default `9`). */
+  'wol-udp-port'?: number;
+  /** Time to wait after sending the WoL packet (seconds). */
+  'wol-wait-time'?: number;
+
+  // -- Session recording --------------------------------------------------
+  /** Server-side directory to write the recording to. */
   'recording-path'?: string;
-  /** Recording name */
+  /** Filename of the recording. */
   'recording-name'?: string;
-  /** Exclude graphics from recording */
+  /** Exclude graphical output from the recording. */
   'recording-exclude-output'?: boolean;
-  /** Exclude mouse from recording */
+  /** Exclude mouse events from the recording. */
   'recording-exclude-mouse'?: boolean;
-  /** Include keys in recording */
+  /** Include key events in the recording. */
   'recording-include-keys'?: boolean;
-  /** Create recording path automatically */
+  /** Automatically create the recording directory. */
   'create-recording-path'?: boolean;
-  /** Timezone to pass to server */
-  timezone?: string;
+  /** Overwrite an existing recording file. */
+  'recording-write-existing'?: boolean;
 }
 
 /**
- * Terminal color scheme presets or custom definition (see Guacamole docs)
+ * Display-related parameters shared by graphical protocols (RDP, VNC).
+ */
+export interface GraphicalConnectionParams extends BaseConnectionParams {
+  /** Desired display width in pixels. */
+  width?: number;
+  /** Desired display height in pixels. */
+  height?: number;
+  /** Display resolution in DPI. */
+  dpi?: number;
+  /** Color depth: 8, 16, 24, or 32 bits. */
+  'color-depth'?: 8 | 16 | 24 | 32;
+  /** Force lossless image compression. */
+  'force-lossless'?: boolean;
+}
+
+/**
+ * Terminal-related parameters shared by text protocols (SSH, Telnet).
+ */
+export interface TerminalConnectionParams extends BaseConnectionParams {
+  /** Desired display width in pixels. */
+  width?: number;
+  /** Desired display height in pixels. */
+  height?: number;
+  /** Display resolution in DPI. */
+  dpi?: number;
+  /** Terminal font family. */
+  'font-name'?: string;
+  /** Terminal font size in points. */
+  'font-size'?: number;
+  /**
+   * Color scheme name or custom definition.
+   *
+   * Built-in values: `"black-white"`, `"gray-black"`, `"green-black"`,
+   * `"white-black"`.  A custom scheme may also be provided as
+   * `"foreground-color: …; background-color: …; color1: …; …"`.
+   */
+  'color-scheme'?: TerminalColorScheme;
+  /** Number of rows to keep in the scrollback buffer. */
+  scrollback?: number;
+  /** Integer codepoint sent when the backspace key is pressed. */
+  backspace?: number;
+  /** Terminal type string reported to the server. */
+  'terminal-type'?: string;
+  /** Read-only mode – keyboard input is ignored. */
+  'read-only'?: boolean;
+
+  // -- Typescript (text session recording) --------------------------------
+  /** Server-side directory for the typescript log. */
+  'typescript-path'?: string;
+  /** Filename of the typescript log. */
+  'typescript-name'?: string;
+  /** Automatically create the typescript directory. */
+  'create-typescript-path'?: boolean;
+  /** Overwrite an existing typescript file. */
+  'typescript-write-existing'?: boolean;
+}
+
+/**
+ * SFTP file-transfer parameters used by protocols that support SFTP
+ * (RDP via built-in SFTP, VNC, SSH).
+ */
+export interface SFTPParams {
+  /** Enable SFTP-based file transfer. */
+  'enable-sftp'?: boolean;
+  /** SFTP server hostname (defaults to the connection hostname). */
+  'sftp-hostname'?: string;
+  /** SFTP server port (default `22`). */
+  'sftp-port'?: number;
+  /** Connection timeout for SFTP in seconds. */
+  'sftp-timeout'?: number;
+  /** Known host key of the SFTP server. */
+  'sftp-host-key'?: string;
+  /** Username for SFTP authentication. */
+  'sftp-username'?: string;
+  /** Password for SFTP authentication. */
+  'sftp-password'?: string;
+  /** Private key for SFTP authentication (PEM-encoded). */
+  'sftp-private-key'?: string;
+  /** Passphrase for the SFTP private key. */
+  'sftp-passphrase'?: string;
+  /** Public key for SFTP certificate-based authentication (Base64-encoded). */
+  'sftp-public-key'?: string;
+  /** Default SFTP upload directory. */
+  'sftp-directory'?: string;
+  /** Root directory exposed to the SFTP browser. */
+  'sftp-root-directory'?: string;
+  /** SSH keepalive interval in seconds for the SFTP channel. */
+  'sftp-server-alive-interval'?: number;
+  /** Disable file downloads through SFTP. */
+  'sftp-disable-download'?: boolean;
+  /** Disable file uploads through SFTP. */
+  'sftp-disable-upload'?: boolean;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pre-defined types
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Terminal color scheme presets or custom definition.
  */
 export type TerminalColorScheme =
   | 'black-white'
   | 'gray-black'
   | 'green-black'
   | 'white-black'
-  | string;
+  | (string & {});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RDP
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * RDP (Remote Desktop Protocol) connection parameters
- * For Windows Remote Desktop connections
+ * RDP (Remote Desktop Protocol) connection parameters.
+ *
+ * @see https://guacamole.apache.org/doc/gug/configuring-guacamole.html#rdp
  */
-export interface RDPConnectionParams extends CommonConnectionParams {
-  /** Protocol type */
+export interface RDPConnectionParams extends GraphicalConnectionParams, SFTPParams {
   type: 'rdp';
-  /** Username for authentication */
+
+  // -- Authentication -----------------------------------------------------
+  /** RDP username. */
   username?: string;
-  /** Password for authentication */
+  /** RDP password. */
   password?: string;
-  /** Windows domain */
+  /** Windows domain for authentication. */
   domain?: string;
-  /** Security mode: any, nla, tls, rdp, vmconnect */
-  security?: 'any' | 'nla' | 'tls' | 'rdp' | 'vmconnect';
-  /** Ignore server certificate validation */
+
+  // -- Network / Security -------------------------------------------------
+  /** Security mode for the connection. */
+  security?: 'any' | 'nla' | 'nla-ext' | 'tls' | 'rdp' | 'vmconnect';
+  /** Ignore server certificate validation. */
   'ignore-cert'?: boolean;
-  /** Disable authentication */
+  /** Trust On First Use — accept unknown certificates once. */
+  'cert-tofu'?: boolean;
+  /** Comma-separated list of acceptable certificate SHA-256 fingerprints. */
+  'cert-fingerprints'?: string;
+  /** Disable NLA authentication. */
   'disable-auth'?: boolean;
-  /** Remote app program */
-  'remote-app'?: string;
-  /** Remote app working directory */
-  'remote-app-dir'?: string;
-  /** Remote app arguments */
-  'remote-app-args'?: string;
-  /** Static virtual channels */
-  'static-channels'?: string;
-  /** Client name to send to server */
-  'client-name'?: string;
-  /** Console mode (Windows Server 2003) */
-  console?: boolean;
-  /** Initial program to run */
-  'initial-program'?: string;
-  /** Server layout (keyboard layout) */
-  'server-layout'?: string;
-  /** Enable drive redirection */
-  'enable-drive'?: boolean;
-  /** Drive name */
-  'drive-name'?: string;
-  /** Drive path */
-  'drive-path'?: string;
-  /** Create drive path automatically */
-  'create-drive-path'?: boolean;
-  /** Console audio (play on server) */
-  'console-audio'?: boolean;
-  /** Disable audio input */
-  'disable-audio-input'?: boolean;
-  /** Enable audio input */
-  'enable-audio-input'?: boolean;
-  /** Gateway hostname */
-  'gateway-hostname'?: string;
-  /** Gateway port */
-  'gateway-port'?: number;
-  /** Gateway username */
-  'gateway-username'?: string;
-  /** Gateway password */
-  'gateway-password'?: string;
-  /** Gateway domain */
-  'gateway-domain'?: string;
-  /** Load balance info */
-  'load-balance-info'?: string;
-  /** Preconnection ID */
-  'preconnection-id'?: number;
-  /** Preconnection BLOB */
-  'preconnection-blob'?: string;
-  /** Resize method: display-update or reconnect */
-  'resize-method'?: 'display-update' | 'reconnect';
-  /** Read-only mode */
-  'read-only'?: boolean;
-  /** Disable clipboard */
-  'disable-copy'?: boolean;
-  /** Disable paste */
-  'disable-paste'?: boolean;
-  /** Normalized clipboard */
-  'normalize-clipboard'?: 'preserve' | 'unix' | 'windows';
+  /** Connection timeout in seconds. */
+  timeout?: number;
+
+  // -- Display / Performance ----------------------------------------------
+  /** Disable RemoteFX / GFX pipeline. */
   'disable-gfx'?: boolean;
-  'disable-bitmap-caching'?: boolean;
-  'disable-offscreen-caching'?: boolean;
-  'disable-glyph-caching'?: boolean;
+  /** Enable desktop composition (Aero). */
   'enable-desktop-composition'?: boolean;
+  /** Enable menu animations. */
   'enable-menu-animations'?: boolean;
-  /** WOL (Wake-on-LAN) settings */
-  'wol-send-packet'?: boolean;
-  'wol-mac-addr'?: string;
-  'wol-broadcast-addr'?: string;
-  'wol-udp-port'?: number;
-  'wol-wait-time'?: number;
+  /** Enable wallpaper rendering. */
+  'enable-wallpaper'?: boolean;
+  /** Enable theming. */
+  'enable-theming'?: boolean;
+  /** Enable font smoothing (ClearType). */
+  'enable-font-smoothing'?: boolean;
+  /** Enable full-window drag. */
+  'enable-full-window-drag'?: boolean;
+  /** Disable bitmap caching. */
+  'disable-bitmap-caching'?: boolean;
+  /** Disable off-screen caching. */
+  'disable-offscreen-caching'?: boolean;
+  /** Disable glyph caching. */
+  'disable-glyph-caching'?: boolean;
+  /** Resize method upon display size change. */
+  'resize-method'?: 'display-update' | 'reconnect';
+  /** Read-only – keyboard and mouse input is ignored. */
+  'read-only'?: boolean;
+
+  // -- Input --------------------------------------------------------------
+  /** Enable multi-touch (RDPEI). */
+  'enable-touch'?: boolean;
+  /** Server keyboard layout. */
+  'server-layout'?: string;
+  /** Normalized clipboard handling. */
+  'normalize-clipboard'?: 'preserve' | 'unix' | 'windows';
+
+  // -- Audio --------------------------------------------------------------
+  /** Disable audio playback. */
+  'disable-audio'?: boolean;
+  /** Enable audio input (microphone). */
+  'enable-audio-input'?: boolean;
+  /** Play audio on the server console. */
+  'console-audio'?: boolean;
+
+  // -- Printing -----------------------------------------------------------
+  /** Enable printing. */
+  'enable-printing'?: boolean;
+  /** Printer name for redirection. */
+  'printer-name'?: string;
+
+  // -- Drive / File Transfer (RDP native) ---------------------------------
+  /** Enable drive (file-system) redirection. */
+  'enable-drive'?: boolean;
+  /** Name of the redirected drive. */
+  'drive-name'?: string;
+  /** Server-side path for the redirected drive. */
+  'drive-path'?: string;
+  /** Automatically create the drive path directory. */
+  'create-drive-path'?: boolean;
+  /** Disable file downloads through the drive. */
+  'disable-download'?: boolean;
+  /** Disable file uploads through the drive. */
+  'disable-upload'?: boolean;
+
+  // -- Remote App ---------------------------------------------------------
+  /** RemoteApp program path. */
+  'remote-app'?: string;
+  /** RemoteApp working directory. */
+  'remote-app-dir'?: string;
+  /** RemoteApp command-line arguments. */
+  'remote-app-args'?: string;
+
+  // -- Gateway ------------------------------------------------------------
+  /** RD Gateway hostname. */
+  'gateway-hostname'?: string;
+  /** RD Gateway port. */
+  'gateway-port'?: number;
+  /** RD Gateway username. */
+  'gateway-username'?: string;
+  /** RD Gateway password. */
+  'gateway-password'?: string;
+  /** RD Gateway domain. */
+  'gateway-domain'?: string;
+
+  // -- Load Balancing -----------------------------------------------------
+  /** Load balance info token (Hyper-V, RDCB). */
+  'load-balance-info'?: string;
+
+  // -- Pre-connection -----------------------------------------------------
+  /** Preconnection ID (Hyper-V). */
+  'preconnection-id'?: number;
+  /** Preconnection BLOB. */
+  'preconnection-blob'?: string;
+
+  // -- Session / Console --------------------------------------------------
+  /** Connect to the admin/console session. */
+  console?: boolean;
+  /** Initial program to launch on login. */
+  'initial-program'?: string;
+  /** Timezone to forward to the server. */
+  timezone?: string;
+  /** Client name presented to the RDP server. */
+  'client-name'?: string;
+
+  // -- Static Channels ----------------------------------------------------
+  /** Comma-separated list of static virtual channel names. */
+  'static-channels'?: string;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// VNC
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
- * VNC (Virtual Network Computing) connection parameters
- * For VNC server connections
+ * VNC (Virtual Network Computing) connection parameters.
+ *
+ * @see https://guacamole.apache.org/doc/gug/configuring-guacamole.html#vnc
  */
-export interface VNCConnectionParams extends CommonConnectionParams {
-  /** Protocol type */
+export interface VNCConnectionParams extends GraphicalConnectionParams, SFTPParams {
   type: 'vnc';
-  /** Username for authentication (if required) */
+
+  // -- Authentication -----------------------------------------------------
+  /** VNC username (if the server requires one). */
   username?: string;
-  /** Password for authentication */
+  /** VNC password. */
   password?: string;
-  /** Swap red and blue components */
+
+  // -- Display / Encoding -------------------------------------------------
+  /** Swap red and blue colour components. */
   'swap-red-blue'?: boolean;
-  /** Cursor mode: local or remote */
+  /** Cursor rendering mode. */
   cursor?: 'local' | 'remote';
-  /** Encoding types */
+  /** Preferred VNC encodings. */
   encodings?: string[];
-  /** Read-only mode */
+  /** Read-only — keyboard and mouse input is ignored. */
   'read-only'?: boolean;
-  /** Disable clipboard */
-  'disable-copy'?: boolean;
-  /** Disable paste */
-  'disable-paste'?: boolean;
-  /** Clipboard encoding */
+  /** Zlib compression level (0–9, used with tight/zlib encoding). */
+  'compress-level'?: number;
+  /** JPEG quality level (0–9, used with tight encoding). */
+  'quality-level'?: number;
+  /** Disable display resize requests (DesktopSize pseudo-encoding). */
+  'disable-display-resize'?: boolean;
+  /** Request the server to stop accepting input from other clients. */
+  'disable-server-input'?: boolean;
+
+  // -- Clipboard ----------------------------------------------------------
+  /** Clipboard encoding to use (e.g. `"ISO8859-1"`, `"UTF-8"`). */
   'clipboard-encoding'?: string;
-  /** Destination host (for reverse connections) */
-  'dest-host'?: string;
-  /** Destination port (for reverse connections) */
-  'dest-port'?: number;
-  /** Enable SFTP */
-  'enable-sftp'?: boolean;
-  /** SFTP hostname */
-  'sftp-hostname'?: string;
-  /** SFTP port */
-  'sftp-port'?: number;
-  /** SFTP username */
-  'sftp-username'?: string;
-  /** SFTP password */
-  'sftp-password'?: string;
-  /** SFTP private key */
-  'sftp-private-key'?: string;
-  /** SFTP passphrase */
-  'sftp-passphrase'?: string;
-  /** SFTP root directory */
-  'sftp-root-directory'?: string;
-  /** SFTP directory */
-  'sftp-directory'?: string;
-  /** SFTP server alive interval */
-  'sftp-server-alive-interval'?: number;
-  /** Auto-retry connection */
-  autoretry?: number;
-  /** Audio server name */
+
+  // -- Reverse connection -------------------------------------------------
+  /** Enable reverse VNC connection (listen mode). */
+  'reverse-connect'?: boolean;
+  /** Timeout in milliseconds when waiting for a reverse connection (default `5000`). */
+  'listen-timeout'?: number;
+
+  // -- Audio --------------------------------------------------------------
+  /** PulseAudio server name for audio support. */
   'audio-servername'?: string;
-  /** WOL settings */
-  'wol-send-packet'?: boolean;
-  'wol-mac-addr'?: string;
-  'wol-broadcast-addr'?: string;
-  'wol-udp-port'?: number;
-  'wol-wait-time'?: number;
+
+  // -- Repeater -----------------------------------------------------------
+  /** Destination host for VNC repeater. */
+  'dest-host'?: string;
+  /** Destination port for VNC repeater. */
+  'dest-port'?: number;
+
+  // -- Retry --------------------------------------------------------------
+  /** Number of times to retry a failed connection. */
+  autoretry?: number;
+
+  // -- Timezone -----------------------------------------------------------
+  /** Timezone to forward to the server. */
+  timezone?: string;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SSH
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
- * SSH (Secure Shell) connection parameters
- * For SSH terminal connections
+ * SSH (Secure Shell) connection parameters.
+ *
+ * @see https://guacamole.apache.org/doc/gug/configuring-guacamole.html#ssh
  */
-export interface SSHConnectionParams extends CommonConnectionParams {
-  /** Protocol type */
+export interface SSHConnectionParams extends TerminalConnectionParams, SFTPParams {
   type: 'ssh';
-  /** Username for authentication */
+
+  // -- Authentication -----------------------------------------------------
+  /** SSH username. */
   username?: string;
-  /** Password for authentication */
+  /** SSH password. */
   password?: string;
-  /** Private key for authentication */
+  /** Private key for key-based authentication (PEM-encoded). */
   'private-key'?: string;
-  /** Passphrase for private key */
+  /** Passphrase for the private key. */
   passphrase?: string;
-  /** Host key */
+  /** Public key for certificate-based authentication (Base64-encoded). */
+  'public-key'?: string;
+  /** Known host key of the SSH server. */
   'host-key'?: string;
-  /** Server alive interval (keepalive) */
+
+  // -- Network ------------------------------------------------------------
+  /** Connection timeout in seconds. */
+  timeout?: number;
+  /** SSH keepalive interval in seconds. */
   'server-alive-interval'?: number;
-  /** Enable SFTP */
-  'enable-sftp'?: boolean;
-  /** SFTP root directory */
-  'sftp-root-directory'?: string;
-  /** Font name */
-  'font-name'?: string;
-  /** Font size */
-  'font-size'?: number;
-  /** Color scheme */
-  'color-scheme'?: TerminalColorScheme;
-  /** Terminal type */
-  'terminal-type'?: string;
-  /** Locale */
-  locale?: string;
-  /** Timezone */
-  timezone?: string;
-  /** Read-only mode */
-  'read-only'?: boolean;
-  /** Disable clipboard */
-  'disable-copy'?: boolean;
-  /** Disable paste */
-  'disable-paste'?: boolean;
-  /** Backspace key sends */
-  backspace?: number;
-  /** Command to execute */
+
+  // -- Execution ----------------------------------------------------------
+  /** Command to execute instead of a login shell. */
   command?: string;
-  /** Scrollback buffer size */
-  scrollback?: number;
-  /** Recording settings */
-  'recording-path'?: string;
-  'recording-name'?: string;
-  'recording-exclude-output'?: boolean;
-  'recording-exclude-mouse'?: boolean;
-  'recording-include-keys'?: boolean;
-  'create-recording-path'?: boolean;
-  /** Typescript settings */
-  'typescript-path'?: string;
-  'typescript-name'?: string;
-  'create-typescript-path'?: boolean;
-  /** WOL settings */
-  'wol-send-packet'?: boolean;
-  'wol-mac-addr'?: string;
-  'wol-broadcast-addr'?: string;
-  'wol-udp-port'?: number;
-  'wol-wait-time'?: number;
-}
-
-/**
- * Telnet connection parameters
- * For Telnet terminal connections
- */
-export interface TelnetConnectionParams extends CommonConnectionParams {
-  /** Protocol type */
-  type: 'telnet';
-  /** Username for login */
-  username?: string;
-  /** Password for login */
-  password?: string;
-  /** Username regex (for automated login) */
-  'username-regex'?: string;
-  /** Password regex (for automated login) */
-  'password-regex'?: string;
-  /** Login success regex */
-  'login-success-regex'?: string;
-  /** Login failure regex */
-  'login-failure-regex'?: string;
-  /** Font name */
-  'font-name'?: string;
-  /** Font size */
-  'font-size'?: number;
-  /** Color scheme */
-  'color-scheme'?: TerminalColorScheme;
-  /** Terminal type */
-  'terminal-type'?: string;
-  /** Locale */
+  /** Locale for the SSH session (e.g. `"en_US.UTF-8"`). */
   locale?: string;
-  /** Timezone */
+  /** Timezone to forward to the server. */
   timezone?: string;
-  /** Read-only mode */
-  'read-only'?: boolean;
-  /** Disable clipboard */
-  'disable-copy'?: boolean;
-  /** Disable paste */
-  'disable-paste'?: boolean;
-  /** Backspace key sends */
-  backspace?: number;
-  /** Scrollback buffer size */
-  scrollback?: number;
-  /** Recording settings */
-  'recording-path'?: string;
-  'recording-name'?: string;
-  'recording-exclude-output'?: boolean;
-  'recording-exclude-mouse'?: boolean;
-  'recording-include-keys'?: boolean;
-  'create-recording-path'?: boolean;
-  /** Typescript settings */
-  'typescript-path'?: string;
-  'typescript-name'?: string;
-  'create-typescript-path'?: boolean;
-  /** WOL settings */
-  'wol-send-packet'?: boolean;
-  'wol-mac-addr'?: string;
-  'wol-broadcast-addr'?: string;
-  'wol-udp-port'?: number;
-  'wol-wait-time'?: number;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Telnet
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
- * Kubernetes connection parameters
- * For Kubernetes pod connections
+ * Telnet connection parameters.
+ *
+ * @see https://guacamole.apache.org/doc/gug/configuring-guacamole.html#telnet
  */
-export interface KubernetesConnectionParams {
-  /** Protocol type */
-  type: 'kubernetes';
-  /** Kubernetes API server URL */
-  hostname: string;
-  /** Kubernetes API port (default: 8080) */
-  port?: number;
-  /** Namespace */
-  namespace?: string;
-  /** Pod name */
-  pod?: string;
-  /** Container name */
-  container?: string;
-  /** Use SSL/TLS */
-  'use-ssl'?: boolean;
-  /** CA certificate */
-  'ca-cert'?: string;
-  /** Client certificate */
-  'client-cert'?: string;
-  /** Client key */
-  'client-key'?: string;
-  /** Ignore certificate errors */
-  'ignore-cert'?: boolean;
-  /** Font name */
-  'font-name'?: string;
-  /** Font size */
-  'font-size'?: number;
-  /** Color scheme */
-  'color-scheme'?: string;
-  /** Scrollback buffer size */
-  scrollback?: number;
-  /** Read-only mode */
-  'read-only'?: boolean;
-  /** Disable clipboard */
-  'disable-copy'?: boolean;
-  /** Disable paste */
-  'disable-paste'?: boolean;
-  /** Backspace key sends */
-  backspace?: number;
-  /** Recording settings */
-  'recording-path'?: string;
-  'recording-name'?: string;
-  'recording-exclude-output'?: boolean;
-  'recording-exclude-mouse'?: boolean;
-  'recording-include-keys'?: boolean;
-  'create-recording-path'?: boolean;
-  /** Typescript settings */
-  'typescript-path'?: string;
-  'typescript-name'?: string;
-  'create-typescript-path'?: boolean;
+export interface TelnetConnectionParams extends TerminalConnectionParams {
+  type: 'telnet';
+
+  // -- Authentication / Auto-login ----------------------------------------
+  /** Telnet username. */
+  username?: string;
+  /** Telnet password. */
+  password?: string;
+  /** Regex to detect the username prompt. */
+  'username-regex'?: string;
+  /** Regex to detect the password prompt. */
+  'password-regex'?: string;
+  /** Regex to detect a successful login. */
+  'login-success-regex'?: string;
+  /** Regex to detect a failed login. */
+  'login-failure-regex'?: string;
+
+  // -- Network ------------------------------------------------------------
+  /** Connection timeout in seconds. */
+  timeout?: number;
+  /** Locale for the Telnet session. */
+  locale?: string;
+  /** Timezone to forward to the server. */
+  timezone?: string;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Union & utilities
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
- * Union type of all protocol-specific parameters
+ * Discriminated union of all supported protocol parameter types.
+ *
+ * Use the `type` field to narrow:
+ * ```ts
+ * if (params.type === 'rdp') {
+ *   params.security; // TS knows this is RDPConnectionParams
+ * }
+ * ```
  */
 export type ProtocolConnectionParams =
   | RDPConnectionParams
   | VNCConnectionParams
   | SSHConnectionParams
-  | TelnetConnectionParams
-  | KubernetesConnectionParams;
+  | TelnetConnectionParams;
 
-/**
- * Protocol type literal values
- */
-export type ProtocolTypeLiteral = 'rdp' | 'vnc' | 'ssh' | 'telnet' | 'kubernetes';
-
-/**
- * Default port numbers for each protocol
- */
-export const DEFAULT_PORTS: Record<ProtocolTypeLiteral, number> = {
+/** Default port numbers for each supported protocol. */
+export const DEFAULT_PORTS: Record<string, number> = {
   rdp: 3389,
   vnc: 5900,
   ssh: 22,
   telnet: 23,
-  kubernetes: 8080,
 };
 
-/**
- * Validation result
- */
+/** Result of a builder `validate()` call. */
 export interface ValidationResult {
   valid: boolean;
   errors: string[];

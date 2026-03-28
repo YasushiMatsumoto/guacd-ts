@@ -9,6 +9,7 @@ import {
   getRecommendedColorDepth,
   parseConnectionString,
 } from '../../protocols/utils';
+import type { ProtocolType } from '../../types';
 
 describe('Protocol Detection', () => {
   describe('detectProtocolFromPort', () => {
@@ -26,10 +27,6 @@ describe('Protocol Detection', () => {
 
     it('should detect Telnet from port 23', () => {
       expect(detectProtocolFromPort(23)).toBe('telnet');
-    });
-
-    it('should detect Kubernetes from port 8080', () => {
-      expect(detectProtocolFromPort(8080)).toBe('kubernetes');
     });
 
     it('should return null for unknown port', () => {
@@ -54,7 +51,6 @@ describe('Protocol Detection', () => {
       expect(getDefaultPort('vnc')).toBe(5900);
       expect(getDefaultPort('ssh')).toBe(22);
       expect(getDefaultPort('telnet')).toBe(23);
-      expect(getDefaultPort('kubernetes')).toBe(8080);
     });
   });
 });
@@ -69,7 +65,6 @@ describe('Protocol Capabilities', () => {
 
     it('should return false for protocols without file transfer', () => {
       expect(supportsFileTransfer('telnet')).toBe(false);
-      expect(supportsFileTransfer('kubernetes')).toBe(false);
     });
   });
 
@@ -82,7 +77,6 @@ describe('Protocol Capabilities', () => {
     it('should return false for protocols without audio', () => {
       expect(supportsAudio('ssh')).toBe(false);
       expect(supportsAudio('telnet')).toBe(false);
-      expect(supportsAudio('kubernetes')).toBe(false);
     });
   });
 
@@ -90,7 +84,6 @@ describe('Protocol Capabilities', () => {
     it('should return true for terminal-based protocols', () => {
       expect(isTerminalProtocol('ssh')).toBe(true);
       expect(isTerminalProtocol('telnet')).toBe(true);
-      expect(isTerminalProtocol('kubernetes')).toBe(true);
     });
 
     it('should return false for graphical protocols', () => {
@@ -108,7 +101,6 @@ describe('Protocol Capabilities', () => {
     it('should return false for terminal protocols', () => {
       expect(isGraphicalProtocol('ssh')).toBe(false);
       expect(isGraphicalProtocol('telnet')).toBe(false);
-      expect(isGraphicalProtocol('kubernetes')).toBe(false);
     });
   });
 });
@@ -120,7 +112,6 @@ describe('Protocol Information', () => {
       expect(getProtocolDisplayName('vnc')).toBe('VNC');
       expect(getProtocolDisplayName('ssh')).toBe('SSH');
       expect(getProtocolDisplayName('telnet')).toBe('Telnet');
-      expect(getProtocolDisplayName('kubernetes')).toBe('Kubernetes');
     });
   });
 
@@ -130,7 +121,6 @@ describe('Protocol Information', () => {
       expect(getRecommendedColorDepth('vnc')).toBe(24);
       expect(getRecommendedColorDepth('ssh')).toBeNull();
       expect(getRecommendedColorDepth('telnet')).toBeNull();
-      expect(getRecommendedColorDepth('kubernetes')).toBeNull();
     });
   });
 });
@@ -269,13 +259,7 @@ describe('Integration Tests', () => {
   });
 
   it('should work with all supported protocols', () => {
-    const protocols: Array<'rdp' | 'vnc' | 'ssh' | 'telnet' | 'kubernetes'> = [
-      'rdp',
-      'vnc',
-      'ssh',
-      'telnet',
-      'kubernetes',
-    ];
+    const protocols: ProtocolType[] = ['rdp', 'vnc', 'ssh', 'telnet'];
 
     protocols.forEach((protocol) => {
       const port = getDefaultPort(protocol);
