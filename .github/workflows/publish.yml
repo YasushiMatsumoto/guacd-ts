@@ -24,5 +24,18 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Check npm version availability
+        id: npm_version
+        run: |
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version > /dev/null 2>&1; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "Version ${PACKAGE_VERSION} is already published."
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish package
+        if: steps.npm_version.outputs.already_published == 'false'
         run: npm publish --access public --provenance
