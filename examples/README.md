@@ -1,254 +1,106 @@
-# Guacd-TS Examples
+# guacd-ts Examples — Parameter Explorer
 
-Complete examples demonstrating various integration patterns with guacd-ts. The recommended flow is now session-ID based (`issueSession` on the server, client connects with `sessionId`), while token generation in some examples is kept for legacy compatibility.
+A developer tool for testing all guacd-ts connection parameters visually.
 
-## 📁 Available Examples
+**Left panel**: all parameters for each protocol in a collapsible form  
+**Right panel**: live Guacamole remote desktop
 
-### ✅ [Express Integration](./express/)
+Change parameters and reconnect to verify the effect of each option.
 
-Production-ready Express.js integration with REST API and web interface.
+---
 
-**Features:**
+## Quick Start
 
-- HTTP + WebSocket on same port
-- REST API for token generation
-- Interactive web UI
-- Real-time statistics
-- TypeScript with Protocol Builders
-
-**Quick Start:**
+### 1. Start protocol containers
 
 ```bash
-cd examples/express
-npx ts-node server.ts
-# Open http://localhost:3000
+cd examples
+docker compose up -d
 ```
 
-## 🚧 Upcoming Examples
+Default credentials:
 
-The following examples are planned and will be added soon:
+| Protocol | Host:Port         | User        | Password    |
+|----------|-------------------|-------------|-------------|
+| RDP      | localhost:13389   | rdpuser     | rdppass     |
+| VNC      | localhost:15900   | —           | vncpass     |
+| SSH      | localhost:2222    | sshuser     | sshpass     |
+| Telnet   | localhost:12323   | telnetuser  | telnetpass  |
 
-### Fastify Integration
-
-High-performance Fastify integration with async/await support.
-
-**Coming Soon:**
-
-- Native async/await patterns
-- Better performance than Express
-- Built-in schema validation
-- TypeScript-first approach
-
-### Standalone Server
-
-Minimal WebSocket-only server without HTTP framework.
-
-**Coming Soon:**
-
-- Pure WebSocket server
-- Minimal dependencies
-- Perfect for learning
-- Command-line token generation
-
-### Redis Session Management
-
-Enterprise session management with Redis backend.
-
-**Coming Soon:**
-
-- Distributed session storage
-- Session sharing across servers
-- Automatic cleanup
-- Connection pooling
-
-### Authentication & Authorization
-
-Complete authentication flow with JWT and role-based access.
-
-**Coming Soon:**
-
-- JWT-based authentication
-- Role-based access control
-- Cookie validation
-- Session management
-
-### Load Balancing
-
-Multi-guacd instance load balancing example.
-
-**Coming Soon:**
-
-- Round-robin load balancing
-- Health checks
-- Failover support
-- Connection affinity
-
-### Docker Compose
-
-Complete deployment setup with Docker Compose.
-
-**Coming Soon:**
-
-- Multi-container setup
-- guacd + web server + Redis
-- Environment configuration
-- Production-ready
-
-### Kubernetes Deployment
-
-Kubernetes manifests for scalable deployment.
-
-**Coming Soon:**
-
-- Deployment configurations
-- Service definitions
-- ConfigMaps and Secrets
-- Horizontal Pod Autoscaling
-
-## Prerequisites
-
-All examples require:
-
-1. **guacd daemon**
-
-   ```bash
-   # Docker (recommended)
-   docker run -d -p 4822:4822 guacamole/guacd
-
-   # Ubuntu/Debian
-   sudo apt-get install guacd
-
-   # macOS
-   brew install guacamole-server
-   ```
-
-2. **Node.js 16+**
-
-   ```bash
-   node --version  # Should be 16.0.0 or higher
-   ```
-
-3. **TypeScript** (for ts-node)
-   ```bash
-   npm install -g typescript ts-node
-   ```
-
-## Getting Started
-
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/YasushiMatsumoto/guacd-ts.git
-   cd guacd-ts
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   npm install
-   ```
-
-3. **Choose an example**
-
-   ```bash
-   cd examples/express  # or another example
-   ```
-
-4. **Follow the example's README**
-   Each example has its own README with specific instructions.
-
-## Common Configuration
-
-### Environment Variables
+### 2. Start the backend server
 
 ```bash
-# Encryption key (32 bytes for AES-256-CBC)
-export ENCRYPTION_KEY="MySuperSecretKeyForParamsToken12"
-
-# Server port
-export PORT=3000
-
-# guacd connection
-export GUACD_HOST=127.0.0.1
-export GUACD_PORT=4822
-
-# Log level
-export LOG_LEVEL=INFO
+cd examples/server
+npm install
+cp .env.example .env   # edit if needed
+npm run dev
+# → http://localhost:3000
 ```
 
-### Protocol Support
-
-All examples support these protocols:
-
-- **RDP** - Remote Desktop Protocol (Windows)
-- **VNC** - Virtual Network Computing
-- **SSH** - Secure Shell
-- **Telnet** - Terminal protocol
-
-## Security Notes
-
-⚠️ **Examples are for development/testing**
-
-For production deployments:
-
-- Use HTTPS/WSS (not HTTP/WS)
-- Implement authentication
-- Use environment variables for secrets
-- Add rate limiting
-- Enable audit logging
-- Follow security best practices in [SECURITY.md](../SECURITY.md)
-
-## Troubleshooting
-
-### guacd Connection Issues
+### 3. Start the frontend (separate terminal)
 
 ```bash
-# Check if guacd is running
-docker ps | grep guacd
-# or
-sudo systemctl status guacd
-
-# Check if port is accessible
-telnet localhost 4822
+cd examples/client
+npm install
+npm run dev
+# → http://localhost:5173
 ```
 
-### Token Issues
+Open [http://localhost:5173](http://localhost:5173) in a browser.
 
-```bash
-# Verify encryption key length (should be 32 bytes)
-echo -n "MySuperSecretKeyForParamsToken12" | wc -c
+---
 
-# Check token generation
-curl -X POST http://localhost:3000/api/token \
-  -H "Content-Type: application/json" \
-  -d '{"protocol":"rdp","hostname":"192.168.1.100"}'
+## Architecture
+
+```
+Browser (Vite SPA)          Express Server          guacd
+  http://localhost:5173  →  http://localhost:3000  →  :4822
+                                      ↓
+                              Docker containers
+                              RDP     :13389
+                              Console :2222 (SSH) / :12323 (Telnet)
+                              VNC     :15900
 ```
 
-### WebSocket Issues
+- **POST /api/validate** — real-time form validation (debounced 500 ms)
+- **POST /api/ticket** — issues a one-time connection ticket
+- **POST /api/join** — joins an existing session (read-only)
+- **GET /api/connections** — lists active sessions
+- **WS /ws?ticket=…** — WebSocket upgraded by guacd-ts
+- Vite proxies `/api` to `localhost:3000`; the WebSocket connects directly
 
-- Check browser console for errors
-- Verify WebSocket URL format: `ws://host:port/?token=...`
-- Ensure no proxy/firewall blocking WebSocket
-- Check CORS settings if accessing from different origin
+---
 
-## Contributing
+## API
 
-Want to contribute an example?
+```
+POST /api/ticket       { protocol, settings, allowJoin }  → { ticketId, wsUrl, expiresAt, warnings }
+POST /api/validate     { protocol, settings }             → { valid, errors, warnings }
+POST /api/join         { connectionId }                   → { ticketId, wsUrl, expiresAt }
+GET  /api/connections                                     → { connections[] }
+GET  /api/health                                          → { status, timestamp, guacd }
+GET  /api/stats                                           → { activeConnections, uptime, memory }
+```
 
-1. Create a new directory under `examples/`
-2. Follow the structure of existing examples
-3. Include a comprehensive README
-4. Add entry to this file
-5. Submit a pull request
+`settings` is a flat key/value object using guacamole parameter names directly
+(e.g. `{ "hostname": "10.0.0.1", "color-depth": 24, "ignore-cert": true }`).
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
+---
 
-## Support
+## Environment Variables (`server/.env`)
 
-- 📖 [Main Documentation](../README.md)
-- 🐛 [Issue Tracker](https://github.com/YasushiMatsumoto/guacd-ts/issues)
-- 💬 [Discussions](https://github.com/YasushiMatsumoto/guacd-ts/discussions)
+```
+PORT=3000
+GUACD_HOST=127.0.0.1
+GUACD_PORT=4822
+TICKET_TTL_MS=300000
+LOG_LEVEL=DEBUG
+```
 
-## License
+---
 
-Apache License 2.0 - See [LICENSE](../LICENSE)
+## Notes
+
+- These examples are excluded from the npm package (`.npmignore`).
+- `guacamole-common-js` is only used client-side; the server has no dependency on it.
+- Docker volumes persist SSH host keys between restarts (`console-hostkeys`).

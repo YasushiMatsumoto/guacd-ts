@@ -105,6 +105,16 @@ export interface TerminalConnectionParams extends BaseConnectionParams {
   /** Read-only mode – keyboard input is ignored. */
   'read-only'?: boolean;
 
+  // -- Clipboard ----------------------------------------------------------
+  /**
+   * Normalize line endings in clipboard text.
+   *
+   * - `"preserve"` — do not modify line endings (default)
+   * - `"unix"` — convert to LF
+   * - `"windows"` — convert to CRLF
+   */
+  'normalize-clipboard'?: 'preserve' | 'unix' | 'windows';
+
   // -- Typescript (text session recording) --------------------------------
   /** Server-side directory for the typescript log. */
   'typescript-path'?: string;
@@ -412,6 +422,7 @@ export interface SSHConnectionParams extends TerminalConnectionParams, SFTPParam
   locale?: string;
   /** Timezone to forward to the server. */
   timezone?: string;
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

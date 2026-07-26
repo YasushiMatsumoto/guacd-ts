@@ -5,10 +5,38 @@
  */
 
 export { BaseConnectionBuilder } from './base';
-export { RDPConnectionBuilder } from './rdp';
-export { VNCConnectionBuilder } from './vnc';
-export { SSHConnectionBuilder } from './ssh';
-export { TelnetConnectionBuilder } from './telnet';
+export {
+  RDPConnectionBuilder,
+  type RDPGatewayOptions,
+  type RDPDriveOptions,
+  type RDPSFTPOptions,
+  type RDPRemoteAppOptions,
+  type RDPPreconnectionOptions,
+  type RDPWakeOnLanOptions,
+  type RDPRecordingOptions,
+  type RDPPerformanceFlags,
+} from './rdp';
+export {
+  VNCConnectionBuilder,
+  type VNCSFTPOptions,
+  type VNCRecordingOptions,
+  type VNCRepeaterOptions,
+  type VNCWakeOnLanOptions,
+} from './vnc';
+export {
+  SSHConnectionBuilder,
+  type SSHSFTPOptions,
+  type SSHRecordingOptions,
+  type SSHTypescriptOptions,
+  type SSHWakeOnLanOptions,
+} from './ssh';
+export {
+  TelnetConnectionBuilder,
+  type TelnetLoginDetectionOptions,
+  type TelnetRecordingOptions,
+  type TelnetTypescriptOptions,
+  type TelnetWakeOnLanOptions,
+} from './telnet';
 
 import { RDPConnectionBuilder } from './rdp';
 import { VNCConnectionBuilder } from './vnc';

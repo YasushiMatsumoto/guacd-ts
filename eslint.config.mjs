@@ -22,7 +22,7 @@ const commonTsRules = {
 export default [
   // Global ignores
   {
-    ignores: ['dist/**', 'node_modules/**'],
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**'],
   },
 
   // src (strict + type-aware)
@@ -33,7 +33,7 @@ export default [
       parserOptions: {
         ecmaVersion: 2020,
         sourceType: 'module',
-        project: './tsconfig.json',
+        project: './tsconfig.eslint.json',
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -51,9 +51,9 @@ export default [
     },
   },
 
-  // examples (type-aware is OK, but rules relaxed)
+  // examples/server (type-aware, rules relaxed)
   {
-    files: ['examples/**/*.ts'],
+    files: ['examples/server/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -75,6 +75,35 @@ export default [
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-floating-promises': 'off',
       '@typescript-eslint/no-misused-promises': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+      'no-console': 'off',
+    },
+  },
+
+  // examples/client (React app — own tsconfig with DOM types)
+  {
+    files: ['examples/client/src/**/*.{ts,tsx}'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2020,
+        sourceType: 'module',
+        project: './examples/client/tsconfig.json',
+        tsconfigRootDir: import.meta.dirname,
+        ecmaFeatures: { jsx: true },
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
+    },
+    rules: {
+      ...tseslint.configs.recommended.rules,
+
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },

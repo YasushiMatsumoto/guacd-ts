@@ -2,7 +2,6 @@ services:
   guacd:
     image: guacamole/guacd:1.5.5
     container_name: guacd
-    restart: unless-stopped
     ports:
       - "4822:4822"
     environment:
@@ -17,7 +16,6 @@ services:
         RDP_USER: rdpuser
         RDP_PASSWORD: rdppass
     container_name: demo-rdp
-    restart: unless-stopped
     ports:
       - "13389:3389"
     environment:
@@ -25,31 +23,20 @@ services:
     networks:
       - guacnet
 
-  ssh:
-    build: ./ssh
-    container_name: demo-ssh
-    restart: unless-stopped
+  console:
+    build: ./console
+    container_name: demo-console
     ports:
       - "2222:22"
+      - "12323:23"
     environment:
       - TZ=Asia/Tokyo
       - SSH_USER=sshuser
       - SSH_PASSWORD=sshpass
+      - TELNET_USER=telnetuser
+      - TELNET_PASSWORD=telnetpass
     volumes:
-      - demo-ssh-hostkeys:/etc/ssh/hostkeys
-    networks:
-      - guacnet
-
-  telnet:
-    build:
-      context: ./telnet
-      args:
-        TELNET_USER: telnetuser
-        TELNET_PASSWORD: telnetpass
-    container_name: demo-telnet
-    restart: unless-stopped
-    ports:
-      - "12323:23"
+      - console-hostkeys:/etc/ssh/hostkeys
     networks:
       - guacnet
 
@@ -59,11 +46,11 @@ services:
       args:
         VNC_PASSWORD: vncpass
     container_name: demo-vnc
-    restart: unless-stopped
     ports:
       - "15900:5900"
     environment:
       - TZ=Asia/Tokyo
+      - VNC_PASSWORD=vncpass
     networks:
       - guacnet
 
@@ -72,4 +59,4 @@ networks:
     driver: bridge
 
 volumes:
-  demo-ssh-hostkeys:
+  console-hostkeys:

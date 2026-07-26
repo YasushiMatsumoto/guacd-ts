@@ -30,6 +30,11 @@ export interface ConnectionSettings {
    * When set, `type` and `settings` are taken from the original session.
    */
   join?: string;
+  /**
+   * Whether other users may join this session.
+   * When `undefined`, falls back to the server-wide `allowJoin` default.
+   */
+  allowJoin?: boolean;
   /** Protocol parameter bag sent to guacd during the handshake. */
   settings: Record<string, string | number | boolean | string[]>;
 }
@@ -66,6 +71,8 @@ export interface TicketData {
   consumedAt?: string;
   /** Optional guacd override for this specific ticket. */
   guacdOptions?: GuacdOptions;
+  /** Arbitrary metadata passed through to the connection. */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -103,6 +110,20 @@ export interface ConnectionContext {
   connectionSettings: ConnectionSettings;
   /** Parsed query-string parameters from the upgrade URL. */
   query: Record<string, string>;
+  /** Arbitrary metadata attached at ticket issuance. */
+  metadata?: Record<string, unknown>;
+}
+
+/** Statistics for a single connection. */
+export interface ConnectionStats {
+  connectionId: string;
+  ticketId: string;
+  metadata?: Record<string, unknown>;
+  connectedAt: Date;
+  durationMs: number;
+  bytesReceived: number;
+  bytesSent: number;
+  lastActivityAt: Date;
 }
 
 // Forward reference — the concrete type is defined in `server/client-connection.ts`.
@@ -110,16 +131,22 @@ export interface ConnectionContext {
 /** Minimal shape of a live client connection visible to hooks. */
 export interface ClientConnectionInfo {
   /** Unique connection identifier assigned by the server. */
-  connectionId: number;
+  connectionId: string;
   /** The ticket ID this connection originated from. */
   ticketId: string;
   /** guacd-assigned connection ID (e.g. `"$abcdef-1234"`). */
   guacamoleConnectionId?: string;
+  /** Arbitrary metadata attached at ticket issuance. */
+  metadata?: Record<string, unknown>;
+  /** Close this connection. */
+  close(error?: Error): void;
+  /** Get connection statistics. */
+  getStats(): ConnectionStats;
 }
 
 /**
  * Lifecycle hooks that can be supplied when creating a
- * {@link GuacamoleServerOptions | GuacamoleServer}.
+ * `GuacamoleServer`.
  *
  * All hooks are optional and may be `async`.
  */
@@ -168,7 +195,7 @@ export interface DefaultConnectionSettings {
 // Server options
 // ---------------------------------------------------------------------------
 
-/** Options for {@link GuacamoleServer} construction. */
+/** Options for `GuacamoleServer` construction. */
 export interface GuacamoleServerOptions {
   /** Default guacd daemon connection settings. */
   guacd?: GuacdOptions;
@@ -177,20 +204,12 @@ export interface GuacamoleServerOptions {
   hooks?: Hooks;
 
   /**
-   * Logger instance.  When omitted a {@link DefaultLogger} at `INFO`
-   * level is created automatically.
+   * Logger instance.  When omitted no log output is produced.
+   * Pass a {@link createDefaultLogger | createDefaultLogger()} result or
+   * any {@link ILogger} implementation (pino, winston, etc.) to enable
+   * logging.
    */
   logger?: ILogger;
-
-  /**
-   * Log configuration used when no custom `logger` is provided.
-   * Ignored if `logger` is set.
-   */
-  log?: {
-    level?: import('../logging/logger').LogLevel | string;
-    stdLog?: (message: string) => void;
-    errorLog?: (message: string) => void;
-  };
 
   /**
    * Per-protocol default parameter values applied before the handshake.
@@ -216,10 +235,42 @@ export interface GuacamoleServerOptions {
   defaultConnectionTtlMs?: number;
 
   /**
-   * Maximum inactivity time in milliseconds before the connection is
+   * Maximum inactivity time in milliseconds before the WebSocket connection is
    * automatically closed.  `0` disables.  Default: `0`.
    */
   maxInactivityTime?: number;
+
+  /**
+   * Inactivity timeout for the guacd TCP socket in milliseconds.
+   * The timer resets on every received **or sent** instruction.
+   * `0` disables.  Default: `0` (previously hardcoded to 10 000).
+   */
+  guacdInactivityTimeoutMs?: number;
+
+  /**
+   * TCP connect timeout for the guacd daemon in milliseconds.
+   * `0` disables.  Default: `10_000` (10 seconds).
+   */
+  connectTimeoutMs?: number;
+
+  /**
+   * Maximum number of concurrent connections.
+   * `0` means unlimited.  Default: `0`.
+   */
+  maxConnections?: number;
+
+  /**
+   * Maximum number of users per shared session (including the original).
+   * Default: `5`.
+   */
+  maxJoinedPerSession?: number;
+
+  /**
+   * Whether sessions are joinable (screen-sharing) by default.
+   * Individual sessions can override via `ConnectionSettings.allowJoin`.
+   * Default: `false`.
+   */
+  allowJoin?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +285,8 @@ export interface IssueTicketOptions {
   connectionTtlMs?: number;
   /** Override the guacd target for this specific connection. */
   guacdOptions?: GuacdOptions;
+  /** Arbitrary metadata passed through to the connection. */
+  metadata?: Record<string, unknown>;
 }
 
 /** Value returned by {@link GuacamoleServer.issueTicket}. */

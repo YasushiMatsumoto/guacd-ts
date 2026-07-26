@@ -40,7 +40,7 @@ export enum LogLevel {
  * Minimal logger contract that guacd-ts relies on.
  *
  * Any object that satisfies this interface can be passed as the `logger`
- * option when creating a {@link GuacamoleServer}.  Popular loggers like
+ * option when creating a `GuacamoleServer`.  Popular loggers like
  * **winston** or **pino** can be wrapped trivially.
  *
  * @example
@@ -72,6 +72,21 @@ export interface ILogger {
   /** Log a verbose / trace-level message. */
   verbose(message: string, context?: Record<string, unknown>): void;
 }
+
+/**
+ * A logger that silently discards all messages.
+ *
+ * Used as the default when no `logger` option is provided to
+ * `GuacamoleServer`, keeping the library silent unless the
+ * consumer explicitly opts into logging.
+ */
+export const noopLogger: ILogger = {
+  error() {},
+  warn() {},
+  info() {},
+  debug() {},
+  verbose() {},
+};
 
 // ---------------------------------------------------------------------------
 // DefaultLogger

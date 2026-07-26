@@ -1,0 +1,12 @@
+src/
+examples/
+coverage/
+.nyc_output/
+dist/__tests__/
+*.log
+.env*
+.gitattributes
+tsconfig*.json
+jest.config.*
+eslint.config.*
+.prettierrc*

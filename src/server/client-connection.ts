@@ -6,13 +6,13 @@
 
 import { EventEmitter } from 'events';
 import * as WebSocket from 'ws';
-import type { ConnectionSettings, GuacdOptions, ClientConnectionInfo } from '../types';
+import type { ConnectionSettings, ConnectionStats, GuacdOptions, ClientConnectionInfo } from '../types';
 import { ConnectionState } from '../types';
 import type { ILogger } from '../logging/logger';
 import { GuacdClient } from './guacd-client';
 import { GuacamoleParser } from '../protocols/parser';
-import { ConnectionError } from '../errors';
-import { GuacamoleErrorCode } from '../errors/base';
+import { ConnectionError, InactivityTimeoutError } from '../errors';
+import { GuacamoleErrorCode, GUACAMOLE_STATUS_CODE } from '../errors/base';
 
 /**
  * Manages a single WebSocket ↔ guacd tunnel.
@@ -28,13 +28,19 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
   private lastActivity: number = Date.now();
   private activityCheckInterval: NodeJS.Timeout | null = null;
   private connectionTtlTimer: NodeJS.Timeout | null = null;
+  private readonly connectedAt: Date = new Date();
+  private bytesReceived = 0;
+  private bytesSent = 0;
 
   /** guacd-assigned connection ID. */
   public guacamoleConnectionId?: string;
 
+  /** Arbitrary metadata attached at ticket issuance. */
+  public readonly metadata?: Record<string, unknown>;
+
   constructor(
-    /** Auto-incrementing connection number. */
-    public readonly connectionId: number,
+    /** Unique connection identifier (UUID v4). */
+    public readonly connectionId: string,
     /** The ticket this connection originated from. */
     public readonly ticketId: string,
     /** The underlying WebSocket. */
@@ -44,9 +50,12 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
     /** Shared logger. */
     private readonly logger: ILogger,
     /** Maximum inactivity time (ms, 0 = disabled). */
-    private readonly maxInactivityTime: number = 0
+    private readonly maxInactivityTime: number = 0,
+    /** Arbitrary metadata from the ticket. */
+    metadata?: Record<string, unknown>
   ) {
     super();
+    this.metadata = metadata;
     this.setupWebSocketHandlers();
   }
 
@@ -60,11 +69,14 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
    * @param guacdOptions - Target guacd daemon.
    * @param mergedSettings - Final settings after defaults have been applied.
    * @param connectionTtlMs - Optional connection lifetime limit (ms).
+   * @param guacdInactivityTimeoutMs - Inactivity timeout for the guacd TCP socket (ms, 0 = disabled).
    */
   connect(
     guacdOptions: GuacdOptions,
     mergedSettings: Record<string, string | number | boolean | string[]>,
-    connectionTtlMs = 0
+    connectionTtlMs = 0,
+    guacdInactivityTimeoutMs = 0,
+    connectTimeoutMs = 10_000
   ): void {
     this.logger.verbose('Opening guacd connection', {
       connectionId: this.connectionId,
@@ -79,7 +91,9 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
       guacdOptions,
       this.getConnectionSelector(),
       effectiveSettings,
-      this.logger
+      this.logger,
+      guacdInactivityTimeoutMs,
+      connectTimeoutMs
     );
 
     // Wire up guacd ↔ WebSocket forwarding.
@@ -117,6 +131,20 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
     return this.state;
   }
 
+  /** Get connection statistics. */
+  getStats(): ConnectionStats {
+    return {
+      connectionId: this.connectionId,
+      ticketId: this.ticketId,
+      metadata: this.metadata,
+      connectedAt: this.connectedAt,
+      durationMs: Date.now() - this.connectedAt.getTime(),
+      bytesReceived: this.bytesReceived,
+      bytesSent: this.bytesSent,
+      lastActivityAt: new Date(this.lastActivity),
+    };
+  }
+
   /** Tear down the bridge (WebSocket + guacd). */
   close(error?: Error): void {
     if (this.state === ConnectionState.CLOSED || this.state === ConnectionState.CLOSING) {
@@ -131,7 +159,7 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
         error: error.message,
       });
     } else {
-      this.logger.verbose('Closing connection', {
+      this.logger.debug('Closing connection', {
         connectionId: this.connectionId,
       });
     }
@@ -181,10 +209,23 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
 
   private handleWsMessage(message: WebSocket.Data): void {
     this.lastActivity = Date.now();
-    const data =
-      typeof message === 'string' ? message : Buffer.from(message as ArrayBuffer).toString('utf-8');
+    let data: string;
+    if (typeof message === 'string') {
+      data = message;
+    } else if (Buffer.isBuffer(message)) {
+      data = message.toString('utf-8');
+    } else if (Array.isArray(message)) {
+      data = Buffer.concat(message).toString('utf-8');
+    } else {
+      data = Buffer.from(message).toString('utf-8');
+    }
+    this.bytesReceived += Buffer.byteLength(data, 'utf-8');
     if (this.guacdClient) {
       this.guacdClient.send(data, true);
+    } else {
+      this.logger.debug('WebSocket message dropped, no guacd client', {
+        connectionId: this.connectionId,
+      });
     }
   }
 
@@ -205,6 +246,7 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
 
   private sendToWebSocket(data: string): void {
     if (this.state === ConnectionState.CLOSED) return;
+    this.bytesSent += Buffer.byteLength(data, 'utf-8');
     if (this.webSocket.readyState === WebSocket.OPEN) {
       this.webSocket.send(data, { binary: false }, (error) => {
         if (error) {
@@ -221,8 +263,9 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
    * Send a Guacamole `error` instruction to the connected client.
    */
   private sendErrorToClient(message: string, code: GuacamoleErrorCode): void {
-    this.logger.error('Sending error to client', { message, code });
-    this.sendToWebSocket(GuacamoleParser.toInstruction(['error', message, String(code)]));
+    this.logger.debug('Sending error to client', { message, code });
+    const statusCode = GUACAMOLE_STATUS_CODE[code] ?? 512;
+    this.sendToWebSocket(GuacamoleParser.toInstruction(['error', message, String(statusCode)]));
   }
 
   private handleError(error: Error): void {
@@ -250,7 +293,7 @@ export class ClientConnection extends EventEmitter implements ClientConnectionIn
         connectionId: this.connectionId,
         idleMs: idle,
       });
-      this.close(new ConnectionError('Session terminated due to inactivity'));
+      this.close(new InactivityTimeoutError(idle));
     }
   }
 }

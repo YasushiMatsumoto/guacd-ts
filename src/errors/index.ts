@@ -8,13 +8,13 @@
  */
 
 // Base
-export { GuacamoleError, GuacamoleErrorCode } from './base';
+export { GuacamoleError, GuacamoleErrorCode, GUACAMOLE_STATUS_CODE } from './base';
 
 // Ticket lifecycle
 export { TicketNotFoundError, TicketExpiredError, TicketAlreadyUsedError } from './ticket';
 
 // Connection / transport
-export { ConnectionError, ConnectionTimeoutError, ConnectionResetError } from './connection';
+export { ConnectionError, ConnectionTimeoutError, ConnectionResetError, HandshakeError, InactivityTimeoutError, MaxConnectionsError, MaxJoinedError } from './connection';
 
 // Authentication
 export { AuthenticationError } from './authentication';

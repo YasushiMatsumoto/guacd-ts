@@ -17,6 +17,7 @@ import {
   ConnectionError,
   ConnectionTimeoutError,
   ConnectionResetError,
+  HandshakeError,
   ServiceUnavailableError,
   ServiceNotFoundError,
 } from '../errors';
@@ -35,7 +36,9 @@ export class GuacdClient extends EventEmitter {
   private state: ConnectionState = ConnectionState.OPENING;
   private connection: net.Socket | null = null;
   private parser: GuacamoleParser;
+  private static readonly MAX_SEND_BUFFER_BYTES = 10 * 1024 * 1024;
   private sendBuffer = '';
+  private sendBufferSize = 0;
   private lastActivity: number = Date.now();
   private activityCheckInterval: NodeJS.Timeout | null = null;
 
@@ -48,12 +51,17 @@ export class GuacdClient extends EventEmitter {
     private readonly connectionSettings: ConnectionSettings,
     private readonly logger: ILogger,
     /** Inactivity timeout for the guacd TCP socket (ms, 0 = disabled). */
-    private readonly inactivityTimeoutMs: number = 10_000
+    private readonly inactivityTimeoutMs: number = 10_000,
+    /** TCP connect timeout in ms (0 = disabled). */
+    private readonly connectTimeoutMs: number = 10_000
   ) {
     super();
 
     this.parser = new GuacamoleParser();
     this.parser.oninstruction = this.processInstruction.bind(this);
+    this.parser.onerror = (error: Error): void => {
+      this.close(new ConnectionError(error.message));
+    };
 
     this.connect();
   }
@@ -69,6 +77,15 @@ export class GuacdClient extends EventEmitter {
     this.logger.verbose('Connecting to guacd', { host, port, selector: this.connectionSelector });
 
     this.connection = net.connect(port, host);
+
+    if (this.connectTimeoutMs > 0) {
+      this.connection.setTimeout(this.connectTimeoutMs);
+      this.connection.once('timeout', () => {
+        this.logger.warn('guacd connect timeout', { host, port, timeoutMs: this.connectTimeoutMs });
+        this.close(new ConnectionTimeoutError(host, port, this.connectTimeoutMs));
+      });
+    }
+
     this.connection.on('connect', this.handleConnect.bind(this));
     this.connection.on('data', this.handleData.bind(this));
     this.connection.on('close', this.handleClose.bind(this));
@@ -79,6 +96,7 @@ export class GuacdClient extends EventEmitter {
         if (Date.now() > this.lastActivity + this.inactivityTimeoutMs) {
           const host = this.guacdOptions.host ?? '127.0.0.1';
           const port = this.guacdOptions.port ?? 4822;
+          this.logger.warn('guacd inactivity timeout', { host, port, timeoutMs: this.inactivityTimeoutMs });
           this.close(new ConnectionTimeoutError(host, port, this.inactivityTimeoutMs));
         }
       }, 1000);
@@ -86,7 +104,10 @@ export class GuacdClient extends EventEmitter {
   }
 
   private handleConnect(): void {
-    this.logger.verbose('guacd TCP connection established');
+    if (this.connection) {
+      this.connection.setTimeout(0);
+    }
+    this.logger.debug('guacd TCP connection established');
     this.sendInstruction(['select', this.connectionSelector]);
   }
 
@@ -108,6 +129,8 @@ export class GuacdClient extends EventEmitter {
   private handleError(error: Error & { code?: string }): void {
     const host = this.guacdOptions.host ?? '127.0.0.1';
     const port = this.guacdOptions.port ?? 4822;
+
+    this.logger.error('guacd TCP error', { host, port, code: error.code });
 
     let typed: Error;
     switch (error.code) {
@@ -143,7 +166,13 @@ export class GuacdClient extends EventEmitter {
 
     if (opcode === 'ready') {
       this.guacamoleConnectionId = params[0];
-      this.logger.verbose('guacd connection ready', {
+      if (!this.guacamoleConnectionId) {
+        this.logger.error('guacd sent ready with empty connection ID');
+        this.close(new HandshakeError('guacd sent ready instruction with empty connection ID'));
+        return;
+      }
+
+      this.logger.debug('guacd connection ready', {
         connectionId: this.guacamoleConnectionId,
       });
 
@@ -154,10 +183,18 @@ export class GuacdClient extends EventEmitter {
         if (this.sendBuffer) {
           this.send(this.sendBuffer);
           this.sendBuffer = '';
+          this.sendBufferSize = 0;
         }
       }
 
       this.emit('data', GuacamoleParser.toInstruction(['', this.guacamoleConnectionId ?? '']));
+      return;
+    }
+
+    if (opcode === 'error' && this.state === ConnectionState.OPENING) {
+      const statusCode = params[1] ?? 'unknown';
+      this.logger.warn('guacd rejected connection', { statusCode });
+      this.close(new HandshakeError(`guacd rejected connection (status ${statusCode})`));
       return;
     }
 
@@ -203,15 +240,18 @@ export class GuacdClient extends EventEmitter {
     const settings = this.connectionSettings.settings as Record<string, unknown>;
     const picked = this.pickProtocolVersion(serverHandshake);
     const protocolToken = picked ? `VERSION_${picked}` : '';
+    this.logger.debug('Protocol version negotiated', { version: picked ?? 'none' });
 
     this.sendClientCapabilities(picked);
 
     const connectArgs: string[] = serverHandshake.map((argName) => {
       if (argName.startsWith('VERSION_')) return protocolToken;
       const value = settings[argName];
-      if (value === null || value === undefined) return '';
-      if (Array.isArray(value)) return (value as unknown[]).map(String).join(',');
-      return String(value as string | number | boolean);
+      if (Array.isArray(value)) return value.map(String).join(',');
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return String(value);
+      }
+      return '';
     });
 
     this.sendInstruction(['connect', ...connectArgs]);
@@ -226,10 +266,12 @@ export class GuacdClient extends EventEmitter {
     this.sendInstruction(['size', String(width), String(height), String(dpi)]);
 
     const toList = (v: unknown): string[] => {
-      if (Array.isArray(v)) return (v as unknown[]).map(String);
-      if (v === undefined || v === null) return [];
-      const str = String(v as string | number | boolean);
-      return str.length ? [str] : [];
+      if (Array.isArray(v)) return v.map(String);
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        const str = String(v);
+        return str.length ? [str] : [];
+      }
+      return [];
     };
 
     this.sendInstruction(['audio', ...toList(s.audio)]);
@@ -264,7 +306,17 @@ export class GuacdClient extends EventEmitter {
     if (this.state === ConnectionState.CLOSED) return;
 
     if (afterOpened && this.state === ConnectionState.OPENING) {
+      const dataSize = Buffer.byteLength(data, 'utf8');
+      if (this.sendBufferSize + dataSize > GuacdClient.MAX_SEND_BUFFER_BYTES) {
+        this.logger.warn('Send buffer overflow', {
+          bufferSize: this.sendBufferSize + dataSize,
+          maxSize: GuacdClient.MAX_SEND_BUFFER_BYTES,
+        });
+        this.close(new ConnectionError('Send buffer overflow'));
+        return;
+      }
       this.sendBuffer += data;
+      this.sendBufferSize += dataSize;
       return;
     }
 
@@ -272,6 +324,7 @@ export class GuacdClient extends EventEmitter {
       throw new ConnectionError('No guacd connection available');
     }
 
+    this.lastActivity = Date.now();
     this.connection.write(data, (error) => {
       if (error) {
         this.close(new ConnectionError(`Failed to send data to guacd: ${error.message}`));

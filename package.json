@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "TypeScript library for bridging WebSocket connections to Apache Guacamole guacd daemon",
   "license": "Apache-2.0",
-  "author": "",
+  "author": "YasushiMatsumoto",
   "repository": {
     "type": "git",
     "url": "https://github.com/YasushiMatsumoto/guacd-ts.git"

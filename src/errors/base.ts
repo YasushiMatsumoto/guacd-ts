@@ -34,6 +34,29 @@ export enum GuacamoleErrorCode {
 }
 
 /**
+ * Maps each {@link GuacamoleErrorCode} to the numeric status code used in the
+ * Guacamole protocol `error` instruction.
+ *
+ * These values match the `Guacamole.Status.Code` constants defined in
+ * guacamole-common-js so that the browser client can interpret them correctly.
+ */
+export const GUACAMOLE_STATUS_CODE: Readonly<Record<GuacamoleErrorCode, number>> = {
+  [GuacamoleErrorCode.CONNECTION_ERROR]: 512,     // SERVER_ERROR     0x0200
+  [GuacamoleErrorCode.SERVICE_UNAVAILABLE]: 520,  // UPSTREAM_UNAVAILABLE 0x0208
+  [GuacamoleErrorCode.SERVICE_NOT_FOUND]: 519,    // UPSTREAM_NOT_FOUND 0x0207
+  [GuacamoleErrorCode.CONNECTION_TIMEOUT]: 514,   // UPSTREAM_TIMEOUT  0x0202
+  [GuacamoleErrorCode.CONNECTION_RESET]: 515,     // UPSTREAM_ERROR    0x0203
+  [GuacamoleErrorCode.HANDSHAKE_ERROR]: 512,      // SERVER_ERROR      0x0200
+  [GuacamoleErrorCode.INACTIVITY_TIMEOUT]: 522,   // SESSION_TIMEOUT   0x020A
+  [GuacamoleErrorCode.AUTHENTICATION_FAILED]: 771,// CLIENT_FORBIDDEN  0x0303
+  [GuacamoleErrorCode.TICKET_NOT_FOUND]: 769,     // CLIENT_UNAUTHORIZED 0x0301
+  [GuacamoleErrorCode.TICKET_EXPIRED]: 769,       // CLIENT_UNAUTHORIZED 0x0301
+  [GuacamoleErrorCode.TICKET_ALREADY_USED]: 769,  // CLIENT_UNAUTHORIZED 0x0301
+  [GuacamoleErrorCode.INVALID_SESSION]: 769,      // CLIENT_UNAUTHORIZED 0x0301
+  [GuacamoleErrorCode.VALIDATION_ERROR]: 768,     // CLIENT_BAD_REQUEST 0x0300
+};
+
+/**
  * Base error class for all guacd-ts errors.
  *
  * Every error carries a {@link GuacamoleErrorCode} so that callers can

@@ -4,9 +4,10 @@
  * @packageDocumentation
  */
 
+import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import * as http from 'http';
-import * as url from 'url';
+import * as net from 'net';
 import * as WebSocket from 'ws';
 import type {
   ConnectionContext,
@@ -19,10 +20,10 @@ import type {
   TicketData,
 } from '../types';
 import type { ILogger } from '../logging/logger';
-import { createDefaultLogger } from '../logging/logger';
+import { noopLogger } from '../logging/logger';
 import { TicketManager } from './ticket-manager';
 import { ClientConnection } from './client-connection';
-import { AuthenticationError } from '../errors';
+import { AuthenticationError, ConnectionError } from '../errors';
 
 /**
  * Manages the lifecycle of WebSocket connections proxied to a guacd daemon.
@@ -52,21 +53,27 @@ export class GuacamoleServer extends EventEmitter {
   private readonly defaultGuacdOptions: GuacdOptions;
   private readonly connectionDefaultSettings: DefaultConnectionSettings;
   private readonly maxInactivityTime: number;
+  private readonly guacdInactivityTimeoutMs: number;
+  private readonly connectTimeoutMs: number;
+  private readonly maxConnections: number;
+  private readonly maxJoinedPerSession: number;
+  private readonly allowJoin: boolean;
 
-  private activeConnections = new Map<number, ClientConnection>();
-  private connectionCounter = 0;
+  private activeConnections = new Map<string, ClientConnection>();
+  private closed = false;
 
   constructor(private readonly options: GuacamoleServerOptions = {}) {
     super();
 
     // Logger -- use supplied or create a default.
-    this.logger = options.logger ?? createDefaultLogger(options.log);
+    this.logger = options.logger ?? noopLogger;
 
     // Ticket manager.
     this.ticketManager = new TicketManager({
       store: options.ticketStore,
       defaultTicketTtlMs: options.defaultTicketTtlMs,
       defaultConnectionTtlMs: options.defaultConnectionTtlMs,
+      logger: this.logger,
     });
 
     // guacd defaults.
@@ -92,6 +99,11 @@ export class GuacamoleServer extends EventEmitter {
     };
 
     this.maxInactivityTime = options.maxInactivityTime ?? 0;
+    this.guacdInactivityTimeoutMs = options.guacdInactivityTimeoutMs ?? 0;
+    this.connectTimeoutMs = options.connectTimeoutMs ?? 10_000;
+    this.maxConnections = options.maxConnections ?? 0;
+    this.maxJoinedPerSession = options.maxJoinedPerSession ?? 5;
+    this.allowJoin = options.allowJoin ?? false;
 
     // Internal WebSocket.Server — noServer mode (no HTTP server bound).
     this.wss = new WebSocket.Server({ noServer: true });
@@ -124,6 +136,43 @@ export class GuacamoleServer extends EventEmitter {
   }
 
   /**
+   * Issue a ticket to join an existing session (screen sharing).
+   *
+   * Looks up the connection by its server-assigned ID, validates that the
+   * session allows joining, and returns a one-time ticket.
+   *
+   * @param connectionId - The server-assigned connection ID to join.
+   * @param options      - Per-ticket TTL / guacd overrides.
+   */
+  async joinSession(
+    connectionId: string,
+    options?: IssueTicketOptions
+  ): Promise<IssuedTicket> {
+    const conn = this.activeConnections.get(connectionId);
+    if (!conn || !conn.guacamoleConnectionId) {
+      this.logger.warn('Join session failed: connection not available', { connectionId });
+      throw new ConnectionError(`Connection ${connectionId} is not available`);
+    }
+
+    const joinAllowed = conn.connectionSettings.allowJoin ?? this.allowJoin;
+    if (!joinAllowed) {
+      this.logger.warn('Join session failed: sharing not allowed', { connectionId });
+      throw new ConnectionError('Session sharing not allowed');
+    }
+
+    const ticket = await this.ticketManager.issueTicket(
+      {
+        type: conn.connectionSettings.type,
+        join: conn.guacamoleConnectionId,
+        settings: { 'read-only': 'true' },
+      },
+      options
+    );
+    this.logger.info('Join session ticket issued', { connectionId, ticketId: ticket.ticketId });
+    return ticket;
+  }
+
+  /**
    * Convenience method — attach to an HTTP server and optionally filter by
    * URL path.
    *
@@ -132,10 +181,15 @@ export class GuacamoleServer extends EventEmitter {
    *                     path.  If omitted all upgrade requests are handled.
    */
   attach(httpServer: http.Server, path?: string): void {
+    this.logger.debug('Attached to HTTP server', { path: path ?? '/' });
     httpServer.on('upgrade', (request, socket, head) => {
-      const reqPath = url.parse(request.url ?? '').pathname ?? '/';
+      const reqPath = new URL(request.url ?? '/', 'http://localhost').pathname;
       if (path && !reqPath.startsWith(path)) return;
       this.handleUpgrade(request, socket as import('net').Socket, head);
+    });
+
+    httpServer.on('close', () => {
+      void this.close();
     });
   }
 
@@ -146,6 +200,9 @@ export class GuacamoleServer extends EventEmitter {
    * path-based routing or other custom logic.
    */
   handleUpgrade(request: http.IncomingMessage, socket: import('net').Socket, head: Buffer): void {
+    this.logger.verbose('WebSocket upgrade request', {
+      path: new URL(request.url ?? '/', 'http://localhost').pathname,
+    });
     this.wss.handleUpgrade(request, socket, head, (ws) => {
       void this.handleNewConnection(ws, request);
     });
@@ -156,18 +213,89 @@ export class GuacamoleServer extends EventEmitter {
     return this.activeConnections.size;
   }
 
+  /** Retrieve a specific connection by its ID, or `undefined` if not found. */
+  getConnection(connectionId: string): ClientConnection | undefined {
+    return this.activeConnections.get(connectionId);
+  }
+
+  /** Return all currently active connections. */
+  getConnectionList(): ClientConnection[] {
+    return Array.from(this.activeConnections.values());
+  }
+
+  /**
+   * Force-disconnect a specific connection.
+   *
+   * @returns `true` if the connection existed and was closed, `false` if not found.
+   */
+  disconnectConnection(connectionId: string, reason?: string): boolean {
+    const conn = this.activeConnections.get(connectionId);
+    if (!conn) return false;
+    this.logger.info('Connection force-disconnected', { connectionId, reason });
+    conn.close(reason ? new Error(reason) : undefined);
+    return true;
+  }
+
+  /**
+   * Check whether the guacd daemon is reachable.
+   *
+   * Opens a TCP connection, waits for the handshake start, then
+   * disconnects.  Useful for health-check endpoints.
+   *
+   * @param timeoutMs - How long to wait before giving up (default: 5 000 ms).
+   * @returns `{ ok, latencyMs, error? }`
+   */
+  async checkGuacd(timeoutMs = 5_000): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+    const host = this.defaultGuacdOptions.host ?? '127.0.0.1';
+    const port = this.defaultGuacdOptions.port ?? 4822;
+    const start = Date.now();
+
+    return new Promise((resolve) => {
+      const socket = net.connect(port, host);
+      let settled = false;
+
+      const finish = (ok: boolean, error?: string): void => {
+        if (settled) return;
+        settled = true;
+        socket.removeAllListeners();
+        if (!socket.destroyed) {
+          socket.end();
+          socket.destroy();
+        }
+        resolve({ ok, latencyMs: Date.now() - start, error });
+      };
+
+      socket.setTimeout(timeoutMs);
+      socket.on('connect', () => finish(true));
+      socket.on('timeout', () => finish(false, `Timeout after ${String(timeoutMs)}ms`));
+      socket.on('error', (err: Error & { code?: string }) => finish(false, err.message));
+    });
+  }
+
   /**
    * Gracefully shut down all tunnels and the internal WebSocket.Server.
    */
   async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+
     this.logger.info('Shutting down GuacamoleServer', {
       active: this.activeConnections.size,
     });
 
-    for (const conn of this.activeConnections.values()) {
-      conn.close();
+    const connections = [...this.activeConnections.values()];
+    for (const conn of connections) {
+      try {
+        conn.close();
+      } catch (err) {
+        this.logger.error('Error closing connection during shutdown', {
+          connectionId: conn.connectionId,
+          error: (err as Error).message,
+        });
+      }
     }
     this.activeConnections.clear();
+    this.ticketManager.destroy();
 
     return new Promise((resolve) => {
       this.wss.close(() => {
@@ -185,14 +313,13 @@ export class GuacamoleServer extends EventEmitter {
     ws: WebSocket.WebSocket,
     request: http.IncomingMessage
   ): Promise<void> {
-    this.connectionCounter++;
-    const connectionId = this.connectionCounter;
+    const connectionId = randomUUID();
 
     try {
       // 1. Extract ticket ID from the URL query string.
-      const parsedUrl = url.parse(request.url ?? '', true);
-      const query = parsedUrl.query as Record<string, string>;
-      const ticketId = query.ticket ?? query.ticketId ?? query.token;
+      const parsedUrl = new URL(request.url ?? '/', 'http://localhost');
+      const query = Object.fromEntries(parsedUrl.searchParams.entries()) as Record<string, string>;
+      const ticketId = query.ticket ?? query.ticket_id ?? query.token;
 
       if (!ticketId) {
         this.logger.warn('Ticket ID missing in WebSocket request');
@@ -200,20 +327,63 @@ export class GuacamoleServer extends EventEmitter {
         return;
       }
 
-      // 2. Validate & consume the ticket.
+      // 2. Validate the ticket (read-only — do NOT consume yet).
       let ticketData: TicketData;
       try {
-        ticketData = await this.ticketManager.validateAndConsume(ticketId);
+        ticketData = await this.ticketManager.validateTicket(ticketId);
       } catch (err) {
         this.logger.warn('Ticket validation failed', {
           ticketId,
           error: (err as Error).message,
         });
-        ws.close(4401, (err as Error).message);
+        ws.close(4401, 'Invalid or expired ticket');
         return;
       }
 
       const connectionSettings = ticketData.connectionSettings;
+
+      // 2a. Check server-wide connection limit.
+      if (this.maxConnections > 0 && this.activeConnections.size >= this.maxConnections) {
+        this.logger.warn('Maximum connections reached', { maxConnections: this.maxConnections });
+        ws.close(4429, 'Maximum connections reached');
+        return;
+      }
+
+      // 2b. Check if the target session allows joining.
+      if (connectionSettings.join) {
+        const originalConn = this.findConnectionByGuacId(connectionSettings.join);
+        const joinAllowed = originalConn?.connectionSettings.allowJoin ?? this.allowJoin;
+        if (!joinAllowed) {
+          this.logger.warn('Session sharing not allowed', {
+            guacamoleConnectionId: connectionSettings.join,
+          });
+          ws.close(4403, 'Session sharing not allowed');
+          return;
+        }
+
+        // 2c. Check per-session join limit.
+        const joinCount = this.countJoinedConnections(connectionSettings.join);
+        if (joinCount >= this.maxJoinedPerSession) {
+          this.logger.warn('Maximum participants per session reached', {
+            guacamoleConnectionId: connectionSettings.join,
+            maxJoinedPerSession: this.maxJoinedPerSession,
+          });
+          ws.close(4429, 'Maximum participants per session reached');
+          return;
+        }
+      }
+
+      // 2d. All checks passed — consume the ticket atomically.
+      try {
+        ticketData = await this.ticketManager.validateAndConsume(ticketId);
+      } catch (err) {
+        this.logger.warn('Ticket consumption failed', {
+          ticketId,
+          error: (err as Error).message,
+        });
+        ws.close(4401, 'Invalid or expired ticket');
+        return;
+      }
 
       // 3. Build ConnectionContext for hooks.
       const context: ConnectionContext = {
@@ -221,6 +391,7 @@ export class GuacamoleServer extends EventEmitter {
         request,
         connectionSettings,
         query,
+        metadata: ticketData.metadata,
       };
 
       // 4. onBeforeConnect hook.
@@ -232,6 +403,7 @@ export class GuacamoleServer extends EventEmitter {
       if (this.options.hooks?.onAuthenticate) {
         const allowed = await this.options.hooks.onAuthenticate(context);
         if (!allowed) {
+          this.logger.warn('Authentication rejected', { ticketId });
           throw new AuthenticationError('Authentication rejected by hook');
         }
       }
@@ -252,13 +424,14 @@ export class GuacamoleServer extends EventEmitter {
         ws,
         connectionSettings,
         this.logger,
-        this.maxInactivityTime
+        this.maxInactivityTime,
+        ticketData.metadata
       );
 
       // -- lifecycle wiring ------------------------------------------------
 
       clientConnection.on('ready', (conn: ClientConnection) => {
-        this.logger.debug('Connection ready', {
+        this.logger.info('Connection ready', {
           connectionId: conn.connectionId,
           guacamoleConnectionId: conn.guacamoleConnectionId,
         });
@@ -267,6 +440,13 @@ export class GuacamoleServer extends EventEmitter {
       });
 
       clientConnection.on('close', (conn: ClientConnection, error?: Error) => {
+        const stats = conn.getStats();
+        this.logger.info('Connection closed', {
+          connectionId: conn.connectionId,
+          durationMs: stats.durationMs,
+          bytesReceived: stats.bytesReceived,
+          bytesSent: stats.bytesSent,
+        });
         this.activeConnections.delete(conn.connectionId);
         const reason = error?.message;
         this.options.hooks?.onDisconnect?.(conn, reason);
@@ -279,7 +459,7 @@ export class GuacamoleServer extends EventEmitter {
       });
 
       // 9. Open the tunnel.
-      clientConnection.connect(guacdOptions, mergedSettings, ticketData.connectionTtlMs);
+      clientConnection.connect(guacdOptions, mergedSettings, ticketData.connectionTtlMs, this.guacdInactivityTimeoutMs, this.connectTimeoutMs);
 
       this.activeConnections.set(connectionId, clientConnection);
     } catch (error) {
@@ -288,7 +468,11 @@ export class GuacamoleServer extends EventEmitter {
         error: error instanceof Error ? error.message : 'Unknown',
       });
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close(1011, 'Internal server error');
+        if (error instanceof AuthenticationError) {
+          ws.close(4403, 'Forbidden');
+        } else {
+          ws.close(1011, 'Internal server error');
+        }
       }
     }
   }
@@ -296,6 +480,28 @@ export class GuacamoleServer extends EventEmitter {
   // -----------------------------------------------------------------------
   // Helpers
   // -----------------------------------------------------------------------
+
+  private findConnectionByGuacId(guacamoleConnectionId: string): ClientConnection | undefined {
+    for (const conn of this.activeConnections.values()) {
+      if (conn.guacamoleConnectionId === guacamoleConnectionId) {
+        return conn;
+      }
+    }
+    return undefined;
+  }
+
+  private countJoinedConnections(guacamoleConnectionId: string): number {
+    let count = 0;
+    for (const conn of this.activeConnections.values()) {
+      if (
+        conn.guacamoleConnectionId === guacamoleConnectionId ||
+        conn.connectionSettings.join === guacamoleConnectionId
+      ) {
+        count++;
+      }
+    }
+    return count;
+  }
 
   /**
    * Merge per-protocol defaults + user-supplied settings into one flat bag.

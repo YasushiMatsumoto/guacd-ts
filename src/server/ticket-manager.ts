@@ -12,6 +12,7 @@ import type {
   TicketData,
   TicketStore,
 } from '../types';
+import type { ILogger } from '../logging/logger';
 import { TicketNotFoundError, TicketExpiredError, TicketAlreadyUsedError } from '../errors';
 
 // ---------------------------------------------------------------------------
@@ -23,6 +24,17 @@ import { TicketNotFoundError, TicketExpiredError, TicketAlreadyUsedError } from 
  */
 class InMemoryTicketStore implements TicketStore {
   private store = new Map<string, TicketData>();
+  private readonly sweepInterval: NodeJS.Timeout;
+
+  constructor(
+    private readonly logger?: ILogger,
+    sweepIntervalMs = 60_000
+  ) {
+    this.sweepInterval = setInterval(() => this.sweep(), sweepIntervalMs);
+    if (this.sweepInterval.unref) {
+      this.sweepInterval.unref();
+    }
+  }
 
   get(ticketId: string): TicketData | null {
     return this.store.get(ticketId) ?? null;
@@ -34,6 +46,24 @@ class InMemoryTicketStore implements TicketStore {
 
   delete(ticketId: string): void {
     this.store.delete(ticketId);
+  }
+
+  destroy(): void {
+    clearInterval(this.sweepInterval);
+  }
+
+  private sweep(): void {
+    const now = new Date();
+    let deleted = 0;
+    for (const [id, ticket] of this.store) {
+      if (ticket.consumedAt || new Date(ticket.ticketExpiresAt) < now) {
+        this.store.delete(id);
+        deleted++;
+      }
+    }
+    if (deleted > 0) {
+      this.logger?.debug('Swept expired tickets', { count: deleted });
+    }
   }
 }
 
@@ -49,6 +79,8 @@ export interface TicketManagerOptions {
   defaultTicketTtlMs?: number;
   /** Default connection lifetime in ms (`0` = unlimited). */
   defaultConnectionTtlMs?: number;
+  /** Logger instance for ticket lifecycle events. */
+  logger?: ILogger;
 }
 
 /**
@@ -68,9 +100,12 @@ export class TicketManager {
   private readonly store: TicketStore;
   private readonly defaultTicketTtlMs: number;
   private readonly defaultConnectionTtlMs: number;
+  private readonly logger?: ILogger;
+  private readonly locks = new Map<string, Promise<void>>();
 
   constructor(options?: TicketManagerOptions) {
-    this.store = options?.store ?? new InMemoryTicketStore();
+    this.logger = options?.logger;
+    this.store = options?.store ?? new InMemoryTicketStore(this.logger);
     this.defaultTicketTtlMs = options?.defaultTicketTtlMs ?? 300_000; // 5 min
     this.defaultConnectionTtlMs = options?.defaultConnectionTtlMs ?? 0;
   }
@@ -102,10 +137,12 @@ export class TicketManager {
       ticketExpiresAt: expiresAt.toISOString(),
       connectionTtlMs: options?.connectionTtlMs ?? this.defaultConnectionTtlMs,
       guacdOptions: options?.guacdOptions,
+      metadata: options?.metadata,
     };
 
     await this.store.set(ticketId, data);
 
+    this.logger?.info('Ticket issued', { ticketId, ttlMs: ttl });
     return { ticketId, expiresAt: expiresAt.toISOString() };
   }
 
@@ -131,6 +168,7 @@ export class TicketManager {
       throw new TicketExpiredError(ticketId, new Date(data.ticketExpiresAt).toISOString());
     }
 
+    this.logger?.verbose('Ticket validated', { ticketId });
     return data;
   }
 
@@ -157,10 +195,13 @@ export class TicketManager {
    * @throws {TicketAlreadyUsedError}
    */
   async validateAndConsume(ticketId: string): Promise<TicketData> {
-    const data = await this.validateTicket(ticketId);
-    data.consumedAt = new Date().toISOString();
-    await this.store.set(ticketId, data);
-    return data;
+    return this.withTicketLock(ticketId, async () => {
+      const data = await this.validateTicket(ticketId);
+      data.consumedAt = new Date().toISOString();
+      await this.store.set(ticketId, data);
+      this.logger?.info('Ticket consumed', { ticketId });
+      return data;
+    });
   }
 
   /**
@@ -168,5 +209,33 @@ export class TicketManager {
    */
   async revokeTicket(ticketId: string): Promise<void> {
     await this.store.delete(ticketId);
+    this.logger?.info('Ticket revoked', { ticketId });
+  }
+
+  /** Release resources held by the ticket manager (e.g. sweep timers). */
+  destroy(): void {
+    if ('destroy' in this.store && typeof (this.store as { destroy?: () => void }).destroy === 'function') {
+      (this.store as { destroy: () => void }).destroy();
+    }
+    this.logger?.debug('TicketManager destroyed');
+  }
+
+  // -----------------------------------------------------------------------
+  // Internal
+  // -----------------------------------------------------------------------
+
+  private async withTicketLock<T>(ticketId: string, fn: () => Promise<T>): Promise<T> {
+    while (this.locks.has(ticketId)) {
+      await this.locks.get(ticketId);
+    }
+    let resolve!: () => void;
+    const lock = new Promise<void>((r) => { resolve = r; });
+    this.locks.set(ticketId, lock);
+    try {
+      return await fn();
+    } finally {
+      this.locks.delete(ticketId);
+      resolve();
+    }
   }
 }

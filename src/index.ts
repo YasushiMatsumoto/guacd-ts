@@ -11,7 +11,7 @@ export { GuacdClient } from './server/guacd-client';
 export { TicketManager } from './server/ticket-manager';
 
 // -- Logging --------------------------------------------------------------
-export { LogLevel, DefaultLogger, createDefaultLogger } from './logging/logger';
+export { LogLevel, DefaultLogger, createDefaultLogger, noopLogger } from './logging/logger';
 export type { ILogger, DefaultLoggerOptions } from './logging/logger';
 
 // -- Protocol builders & utilities ----------------------------------------
@@ -55,6 +55,7 @@ export { DEFAULT_PORTS } from './protocols/types';
 export type {
   ProtocolType,
   ConnectionSettings,
+  ConnectionStats,
   GuacdOptions,
   TicketData,
   TicketStore,
@@ -72,6 +73,7 @@ export { ConnectionState } from './types';
 // -- Errors ---------------------------------------------------------------
 export {
   GuacamoleErrorCode,
+  GUACAMOLE_STATUS_CODE,
   GuacamoleError,
   TicketNotFoundError,
   TicketExpiredError,
@@ -79,6 +81,10 @@ export {
   ConnectionError,
   ConnectionTimeoutError,
   ConnectionResetError,
+  HandshakeError,
+  InactivityTimeoutError,
+  MaxConnectionsError,
+  MaxJoinedError,
   AuthenticationError,
   InvalidSessionError,
   ServiceUnavailableError,

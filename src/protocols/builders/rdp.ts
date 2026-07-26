@@ -9,8 +9,102 @@ import type { RDPConnectionParams, ValidationResult } from '../types';
 import { DEFAULT_PORTS } from '../types';
 import { BaseConnectionBuilder } from './base';
 
+// ---------------------------------------------------------------------------
+// Option interfaces (exported for consumer type-safety)
+// ---------------------------------------------------------------------------
+
+export interface RDPGatewayOptions {
+  hostname: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  domain?: string;
+}
+
+export interface RDPDriveOptions {
+  path: string;
+  name?: string;
+  createPath?: boolean;
+  disableDownload?: boolean;
+  disableUpload?: boolean;
+}
+
+export interface RDPSFTPOptions {
+  /** SFTP server hostname. Defaults to the RDP connection hostname. */
+  hostname?: string;
+  /** SFTP server port. Default `22`. */
+  port?: number;
+  username: string;
+  password?: string;
+  privateKey?: string;
+  passphrase?: string;
+  publicKey?: string;
+  hostKey?: string;
+  /** Default upload directory. */
+  directory?: string;
+  /** Root directory exposed to the SFTP browser. */
+  rootDirectory?: string;
+  /** SSH keepalive interval in seconds. */
+  keepAliveInterval?: number;
+  disableDownload?: boolean;
+  disableUpload?: boolean;
+  /** Connection timeout in seconds. */
+  timeout?: number;
+}
+
+export interface RDPRemoteAppOptions {
+  program: string;
+  args?: string;
+  workDir?: string;
+}
+
+export interface RDPPreconnectionOptions {
+  id?: number;
+  blob?: string;
+}
+
+export interface RDPWakeOnLanOptions {
+  macAddr: string;
+  broadcastAddr?: string;
+  /** UDP port for the WoL packet. Default `9`. */
+  udpPort?: number;
+  /** Seconds to wait after sending the packet. */
+  waitTime?: number;
+}
+
+export interface RDPRecordingOptions {
+  path: string;
+  name?: string;
+  excludeOutput?: boolean;
+  excludeMouse?: boolean;
+  includeKeys?: boolean;
+  createPath?: boolean;
+  writeExisting?: boolean;
+}
+
+export interface RDPPerformanceFlags {
+  wallpaper?: boolean;
+  theming?: boolean;
+  fontSmoothing?: boolean;
+  fullWindowDrag?: boolean;
+  desktopComposition?: boolean;
+  menuAnimations?: boolean;
+  disableGfx?: boolean;
+  disableBitmapCaching?: boolean;
+  disableOffscreenCaching?: boolean;
+  disableGlyphCaching?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Builder
+// ---------------------------------------------------------------------------
+
 /**
- * Fluent builder for RDP connections with validation and sensible defaults.
+ * Fluent builder for RDP connections.
+ *
+ * Multi-parameter features (gateway, drive, SFTP, RemoteApp, recording,
+ * Wake-on-LAN, preconnection) use named option objects so call sites are
+ * self-documenting and forward-compatible.
  *
  * @example
  * ```ts
@@ -18,8 +112,9 @@ import { BaseConnectionBuilder } from './base';
  *   .hostname('192.168.1.100')
  *   .username('admin')
  *   .password('secret')
- *   .width(1920)
- *   .height(1080)
+ *   .security('nla')
+ *   .width(1920).height(1080)
+ *   .timezone('Asia/Tokyo')
  *   .build();
  * ```
  */
@@ -38,256 +133,190 @@ export class RDPConnectionBuilder extends BaseConnectionBuilder<RDPConnectionPar
 
   // -- Network / Target ---------------------------------------------------
 
-  /** Set the target hostname or IP address. */
-  hostname(hostname: string): this {
-    this.params.hostname = hostname;
-    return this;
-  }
-
-  /** Set the target port (default `3389`). */
-  port(port: number): this {
-    this.params.port = port;
-    return this;
-  }
-
-  /** Set the connection timeout in seconds. */
-  timeout(seconds: number): this {
-    this.params.timeout = seconds;
-    return this;
-  }
+  hostname(hostname: string): this { this.params.hostname = hostname; return this; }
+  port(port: number): this { this.params.port = port; return this; }
+  timeout(seconds: number): this { this.params.timeout = seconds; return this; }
 
   // -- Authentication -----------------------------------------------------
 
-  /** Set the RDP username. */
-  username(username: string): this {
-    this.params.username = username;
-    return this;
-  }
-
-  /** Set the RDP password. */
-  password(password: string): this {
-    this.params.password = password;
-    return this;
-  }
-
-  /** Set the Windows domain. */
-  domain(domain: string): this {
-    this.params.domain = domain;
-    return this;
-  }
+  username(username: string): this { this.params.username = username; return this; }
+  password(password: string): this { this.params.password = password; return this; }
+  domain(domain: string): this { this.params.domain = domain; return this; }
+  /** Disable NLA pre-authentication (`disable-auth`). */
+  disableAuth(disable = true): this { this.params['disable-auth'] = disable; return this; }
 
   // -- Security -----------------------------------------------------------
 
-  /** Set the security mode. */
-  security(security: RDPConnectionParams['security']): this {
-    this.params.security = security;
-    return this;
-  }
-
-  /** Ignore server certificate validation. */
-  ignoreCert(ignore = true): this {
-    this.params['ignore-cert'] = ignore;
-    return this;
-  }
-
-  /** Enable Trust On First Use for certificates. */
-  certTofu(enable = true): this {
-    this.params['cert-tofu'] = enable;
-    return this;
-  }
-
-  /** Set acceptable certificate SHA-256 fingerprints (comma-separated). */
-  certFingerprints(fingerprints: string): this {
-    this.params['cert-fingerprints'] = fingerprints;
-    return this;
-  }
+  security(security: RDPConnectionParams['security']): this { this.params.security = security; return this; }
+  ignoreCert(ignore = true): this { this.params['ignore-cert'] = ignore; return this; }
+  certTofu(enable = true): this { this.params['cert-tofu'] = enable; return this; }
+  certFingerprints(fingerprints: string): this { this.params['cert-fingerprints'] = fingerprints; return this; }
 
   // -- Display ------------------------------------------------------------
 
-  /** Set the display width in pixels. */
-  width(width: number): this {
-    this.params.width = width;
-    return this;
-  }
-
-  /** Set the display height in pixels. */
-  height(height: number): this {
-    this.params.height = height;
-    return this;
-  }
-
-  /** Set the display DPI. */
-  dpi(dpi: number): this {
-    this.params.dpi = dpi;
-    return this;
-  }
-
-  /** Set the colour depth (8, 16, 24, or 32 bits). */
-  colorDepth(depth: 8 | 16 | 24 | 32): this {
-    this.params['color-depth'] = depth;
-    return this;
-  }
-
-  /** Force lossless image compression. */
-  forceLossless(enable = true): this {
-    this.params['force-lossless'] = enable;
-    return this;
-  }
-
-  /** Set the resize method upon display size change. */
-  resize(method: 'display-update' | 'reconnect'): this {
-    this.params['resize-method'] = method;
-    return this;
-  }
-
-  /** Enable or disable multi-touch input (RDPEI). */
-  enableTouch(enable = true): this {
-    this.params['enable-touch'] = enable;
-    return this;
-  }
+  width(width: number): this { this.params.width = width; return this; }
+  height(height: number): this { this.params.height = height; return this; }
+  dpi(dpi: number): this { this.params.dpi = dpi; return this; }
+  colorDepth(depth: 8 | 16 | 24 | 32): this { this.params['color-depth'] = depth; return this; }
+  forceLossless(enable = true): this { this.params['force-lossless'] = enable; return this; }
+  resizeMethod(method: 'display-update' | 'reconnect'): this { this.params['resize-method'] = method; return this; }
+  enableTouch(enable = true): this { this.params['enable-touch'] = enable; return this; }
 
   // -- Performance --------------------------------------------------------
 
-  /**
-   * Configure display performance flags in one call.
-   */
-  performanceFlags(flags: {
-    wallpaper?: boolean;
-    theming?: boolean;
-    fontSmoothing?: boolean;
-    fullWindowDrag?: boolean;
-    desktopComposition?: boolean;
-    menuAnimations?: boolean;
-  }): this {
+  performanceFlags(flags: RDPPerformanceFlags): this {
     if (flags.wallpaper !== undefined) this.params['enable-wallpaper'] = flags.wallpaper;
     if (flags.theming !== undefined) this.params['enable-theming'] = flags.theming;
-    if (flags.fontSmoothing !== undefined)
-      this.params['enable-font-smoothing'] = flags.fontSmoothing;
-    if (flags.fullWindowDrag !== undefined)
-      this.params['enable-full-window-drag'] = flags.fullWindowDrag;
-    if (flags.desktopComposition !== undefined)
-      this.params['enable-desktop-composition'] = flags.desktopComposition;
-    if (flags.menuAnimations !== undefined)
-      this.params['enable-menu-animations'] = flags.menuAnimations;
+    if (flags.fontSmoothing !== undefined) this.params['enable-font-smoothing'] = flags.fontSmoothing;
+    if (flags.fullWindowDrag !== undefined) this.params['enable-full-window-drag'] = flags.fullWindowDrag;
+    if (flags.desktopComposition !== undefined) this.params['enable-desktop-composition'] = flags.desktopComposition;
+    if (flags.menuAnimations !== undefined) this.params['enable-menu-animations'] = flags.menuAnimations;
+    if (flags.disableGfx !== undefined) this.params['disable-gfx'] = flags.disableGfx;
+    if (flags.disableBitmapCaching !== undefined) this.params['disable-bitmap-caching'] = flags.disableBitmapCaching;
+    if (flags.disableOffscreenCaching !== undefined) this.params['disable-offscreen-caching'] = flags.disableOffscreenCaching;
+    if (flags.disableGlyphCaching !== undefined) this.params['disable-glyph-caching'] = flags.disableGlyphCaching;
     return this;
   }
 
   // -- Audio --------------------------------------------------------------
 
-  /** Disable audio playback. */
-  disableAudio(disable = true): this {
-    this.params['disable-audio'] = disable;
+  disableAudio(disable = true): this { this.params['disable-audio'] = disable; return this; }
+  enableAudioInput(enable = true): this { this.params['enable-audio-input'] = enable; return this; }
+  /** Redirect audio to the server console session (`console-audio`). */
+  consoleAudio(enable = true): this { this.params['console-audio'] = enable; return this; }
+
+  // -- Input / Clipboard --------------------------------------------------
+
+  readOnly(readOnly = true): this { this.params['read-only'] = readOnly; return this; }
+  /** Set the keyboard layout of the remote server (e.g. `"en-us-qwerty"`). */
+  serverLayout(layout: string): this { this.params['server-layout'] = layout; return this; }
+  disableCopy(disable = true): this { this.params['disable-copy'] = disable; return this; }
+  disablePaste(disable = true): this { this.params['disable-paste'] = disable; return this; }
+  disableClipboard(disable = true): this {
+    this.params['disable-copy'] = disable;
+    this.params['disable-paste'] = disable;
     return this;
   }
-
-  /** Enable audio input (microphone). */
-  enableAudioInput(enable = true): this {
-    this.params['enable-audio-input'] = enable;
+  normalizeClipboard(mode: 'preserve' | 'unix' | 'windows'): this {
+    this.params['normalize-clipboard'] = mode;
     return this;
   }
 
   // -- Printing -----------------------------------------------------------
 
-  /** Enable printing redirection. */
   enablePrinting(printerName?: string): this {
     this.params['enable-printing'] = true;
     if (printerName) this.params['printer-name'] = printerName;
     return this;
   }
 
-  // -- Drive / File Transfer ----------------------------------------------
+  // -- Drive (RDP native file-system redirection) -------------------------
 
-  /** Enable RDP native drive redirection. */
-  enableDrive(path: string, name = 'Shared'): this {
+  drive(options: RDPDriveOptions): this {
     this.params['enable-drive'] = true;
-    this.params['drive-path'] = path;
-    this.params['drive-name'] = name;
-    this.params['create-drive-path'] = true;
+    this.params['drive-path'] = options.path;
+    this.params['drive-name'] = options.name ?? 'Shared';
+    this.params['create-drive-path'] = options.createPath ?? true;
+    if (options.disableDownload !== undefined) this.params['disable-download'] = options.disableDownload;
+    if (options.disableUpload !== undefined) this.params['disable-upload'] = options.disableUpload;
     return this;
   }
 
-  /**
-   * Enable SFTP-based file transfer (RDP + SFTP).
-   */
-  enableSFTP(hostname: string, username: string, password?: string, port = 22): this {
+  // -- SFTP ---------------------------------------------------------------
+
+  sftp(options: RDPSFTPOptions): this {
     this.params['enable-sftp'] = true;
-    this.params['sftp-hostname'] = hostname;
-    this.params['sftp-port'] = port;
-    this.params['sftp-username'] = username;
-    if (password) this.params['sftp-password'] = password;
+    this.params['sftp-username'] = options.username;
+    if (options.hostname) this.params['sftp-hostname'] = options.hostname;
+    if (options.port !== undefined) this.params['sftp-port'] = options.port;
+    if (options.password) this.params['sftp-password'] = options.password;
+    if (options.privateKey) this.params['sftp-private-key'] = options.privateKey;
+    if (options.passphrase) this.params['sftp-passphrase'] = options.passphrase;
+    if (options.publicKey) this.params['sftp-public-key'] = options.publicKey;
+    if (options.hostKey) this.params['sftp-host-key'] = options.hostKey;
+    if (options.directory) this.params['sftp-directory'] = options.directory;
+    if (options.rootDirectory) this.params['sftp-root-directory'] = options.rootDirectory;
+    if (options.keepAliveInterval !== undefined) this.params['sftp-server-alive-interval'] = options.keepAliveInterval;
+    if (options.disableDownload !== undefined) this.params['sftp-disable-download'] = options.disableDownload;
+    if (options.disableUpload !== undefined) this.params['sftp-disable-upload'] = options.disableUpload;
+    if (options.timeout !== undefined) this.params['sftp-timeout'] = options.timeout;
     return this;
   }
 
   // -- Remote App ---------------------------------------------------------
 
-  /** Configure a RemoteApp session. */
-  remoteApp(program: string, args?: string, workDir?: string): this {
-    this.params['remote-app'] = program;
-    if (args) this.params['remote-app-args'] = args;
-    if (workDir) this.params['remote-app-dir'] = workDir;
+  remoteApp(options: RDPRemoteAppOptions): this {
+    this.params['remote-app'] = options.program;
+    if (options.args) this.params['remote-app-args'] = options.args;
+    if (options.workDir) this.params['remote-app-dir'] = options.workDir;
     return this;
   }
 
   // -- Gateway ------------------------------------------------------------
 
-  /** Configure RD Gateway settings. */
-  gateway(hostname: string, username?: string, password?: string, port = 443): this {
-    this.params['gateway-hostname'] = hostname;
-    this.params['gateway-port'] = port;
-    if (username) this.params['gateway-username'] = username;
-    if (password) this.params['gateway-password'] = password;
+  gateway(options: RDPGatewayOptions): this {
+    this.params['gateway-hostname'] = options.hostname;
+    this.params['gateway-port'] = options.port ?? 443;
+    if (options.username) this.params['gateway-username'] = options.username;
+    if (options.password) this.params['gateway-password'] = options.password;
+    if (options.domain) this.params['gateway-domain'] = options.domain;
     return this;
   }
 
-  // -- Input / Clipboard --------------------------------------------------
+  // -- Load Balancing / Preconnection ------------------------------------
 
-  /** Enable read-only mode. */
-  readOnly(readOnly = true): this {
-    this.params['read-only'] = readOnly;
+  loadBalanceInfo(token: string): this { this.params['load-balance-info'] = token; return this; }
+
+  preconnection(options: RDPPreconnectionOptions): this {
+    if (options.id !== undefined) this.params['preconnection-id'] = options.id;
+    if (options.blob) this.params['preconnection-blob'] = options.blob;
     return this;
   }
 
-  /** Disable both copy and paste. */
-  disableClipboard(disable = true): this {
-    this.params['disable-copy'] = disable;
-    this.params['disable-paste'] = disable;
+  // -- Session / Console --------------------------------------------------
+
+  /** Connect to the RDP console/admin session. */
+  adminConsole(enable = true): this { this.params.console = enable; return this; }
+  initialProgram(program: string): this { this.params['initial-program'] = program; return this; }
+  timezone(tz: string): this { this.params.timezone = tz; return this; }
+  clientName(name: string): this { this.params['client-name'] = name; return this; }
+  /** Comma-separated list of static virtual channel names. */
+  staticChannels(channels: string | string[]): this {
+    this.params['static-channels'] = Array.isArray(channels) ? channels.join(',') : channels;
     return this;
   }
 
-  /** Disable copy from remote to client. */
-  disableCopy(disable = true): this {
-    this.params['disable-copy'] = disable;
-    return this;
-  }
+  // -- Wake-on-LAN --------------------------------------------------------
 
-  /** Disable paste from client to remote. */
-  disablePaste(disable = true): this {
-    this.params['disable-paste'] = disable;
-    return this;
-  }
-
-  /** Set clipboard normalization mode. */
-  normalizeClipboard(mode: 'preserve' | 'unix' | 'windows'): this {
-    this.params['normalize-clipboard'] = mode;
+  wakeOnLan(options: RDPWakeOnLanOptions): this {
+    this.params['wol-send-packet'] = true;
+    this.params['wol-mac-addr'] = options.macAddr;
+    if (options.broadcastAddr) this.params['wol-broadcast-addr'] = options.broadcastAddr;
+    if (options.udpPort !== undefined) this.params['wol-udp-port'] = options.udpPort;
+    if (options.waitTime !== undefined) this.params['wol-wait-time'] = options.waitTime;
     return this;
   }
 
   // -- Recording ----------------------------------------------------------
 
-  /** Enable server-side session recording. */
-  enableRecording(path: string, name?: string): this {
-    this.params['recording-path'] = path;
-    this.params['recording-name'] = name ?? `rdp-${Date.now()}`;
-    this.params['create-recording-path'] = true;
+  recording(options: RDPRecordingOptions): this {
+    this.params['recording-path'] = options.path;
+    this.params['recording-name'] = options.name ?? `rdp-${Date.now()}`;
+    this.params['create-recording-path'] = options.createPath ?? true;
+    if (options.excludeOutput !== undefined) this.params['recording-exclude-output'] = options.excludeOutput;
+    if (options.excludeMouse !== undefined) this.params['recording-exclude-mouse'] = options.excludeMouse;
+    if (options.includeKeys !== undefined) this.params['recording-include-keys'] = options.includeKeys;
+    if (options.writeExisting !== undefined) this.params['recording-write-existing'] = options.writeExisting;
     return this;
   }
 
-  // -- Bulk ---------------------------------------------------------------
+  // -- Bulk fallback ------------------------------------------------------
 
   /**
    * Set arbitrary RDP parameters in bulk.
    *
-   * Useful for parameters not yet exposed as dedicated helper methods.
+   * Useful for parameters not yet exposed as dedicated helper methods, or
+   * for forwarding a plain config object from external sources.
    */
   withParams(params: Partial<Omit<RDPConnectionParams, 'type'>>): this {
     this.params = { ...this.params, ...params };
@@ -296,32 +325,58 @@ export class RDPConnectionBuilder extends BaseConnectionBuilder<RDPConnectionPar
 
   // -- Validation / Build -------------------------------------------------
 
-  /** @inheritdoc */
   validate(): ValidationResult {
     const errors: string[] = [];
     const warnings: string[] = [];
+    const p = this.params;
 
-    if (!this.params.hostname) errors.push('hostname is required');
-    if (!this.params.username) errors.push('username is required');
+    // -- Required fields ---------------------------------------------------
+    if (!p.hostname) errors.push('hostname is required');
+    if (!p.username) errors.push('username is required');
 
-    const portErr = this.validatePort(this.params.port);
+    // -- Range checks ------------------------------------------------------
+    const portErr = this.validatePort(p.port);
     if (portErr) errors.push(portErr);
-    const wErr = this.validatePositive(this.params.width, 'width');
+    const wErr = this.validatePositive(p.width, 'width');
     if (wErr) errors.push(wErr);
-    const hErr = this.validatePositive(this.params.height, 'height');
+    const hErr = this.validatePositive(p.height, 'height');
     if (hErr) errors.push(hErr);
-    const dErr = this.validatePositive(this.params.dpi, 'dpi');
+    const dErr = this.validatePositive(p.dpi, 'dpi');
     if (dErr) errors.push(dErr);
 
-    if (this.params.password && !this.params.username)
-      warnings.push('Password provided without username');
-    if (this.params.security === 'nla' && !this.params.password)
-      warnings.push('NLA selected but password is empty; authentication will fail');
+    // -- Feature preconditions (missing required sub-fields) ---------------
+    if (p['wol-send-packet'] && !p['wol-mac-addr'])
+      errors.push('wakeOnLan: wol-mac-addr is required when wol-send-packet is enabled');
+    if (p['enable-drive'] && !p['drive-path'])
+      errors.push('drive: drive-path is required when enable-drive is set');
+    if (p['enable-sftp'] && !p['sftp-username'])
+      errors.push('sftp: sftp-username is required when enable-sftp is set');
+
+    // -- Credential warnings -----------------------------------------------
+    if (p.password && !p.username)
+      warnings.push('password provided without username');
+    if (p.security === 'nla' && !p.password)
+      warnings.push('NLA selected but password is empty — authentication will likely fail');
+
+    // -- Security / certificate contradictions -----------------------------
+    if (p.security === 'rdp')
+      warnings.push("security='rdp' uses legacy NTLMv1 — prefer 'nla' or 'tls' for production");
+    if (p['ignore-cert'] && p['cert-fingerprints'])
+      warnings.push('ignore-cert is true but cert-fingerprints is also set — fingerprints will have no effect');
+    if (p['ignore-cert'] && p['cert-tofu'])
+      warnings.push('ignore-cert is true but cert-tofu is also set — cert-tofu will have no effect');
+
+    // -- Mutually exclusive feature combinations ---------------------------
+    if (p['remote-app'] && p.console)
+      warnings.push('remote-app and console (admin session) are mutually exclusive — remote-app will be ignored');
+
+    // -- Flag applicability ------------------------------------------------
+    if (p['disable-auth'] && p.security !== 'nla')
+      warnings.push("disable-auth only applies when security='nla' — it will be ignored with the current security setting");
 
     return { valid: errors.length === 0, errors, warnings };
   }
 
-  /** @inheritdoc */
   build(): ConnectionSettings {
     const v = this.validate();
     if (!v.valid) throw new Error(`Invalid RDP connection: ${v.errors.join(', ')}`);
