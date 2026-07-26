@@ -1,0 +1,62 @@
+services:
+  guacd:
+    image: guacamole/guacd:1.5.5
+    container_name: guacd
+    ports:
+      - "4822:4822"
+    environment:
+      GUACD_LOG_LEVEL: debug
+    networks:
+      - guacnet
+
+  rdp:
+    build:
+      context: ./rdp
+      args:
+        RDP_USER: rdpuser
+        RDP_PASSWORD: rdppass
+    container_name: demo-rdp
+    ports:
+      - "13389:3389"
+    environment:
+      - TZ=Asia/Tokyo
+    networks:
+      - guacnet
+
+  console:
+    build: ./console
+    container_name: demo-console
+    ports:
+      - "2222:22"
+      - "12323:23"
+    environment:
+      - TZ=Asia/Tokyo
+      - SSH_USER=sshuser
+      - SSH_PASSWORD=sshpass
+      - TELNET_USER=telnetuser
+      - TELNET_PASSWORD=telnetpass
+    volumes:
+      - console-hostkeys:/etc/ssh/hostkeys
+    networks:
+      - guacnet
+
+  vnc:
+    build:
+      context: ./vnc
+      args:
+        VNC_PASSWORD: vncpass
+    container_name: demo-vnc
+    ports:
+      - "15900:5900"
+    environment:
+      - TZ=Asia/Tokyo
+      - VNC_PASSWORD=vncpass
+    networks:
+      - guacnet
+
+networks:
+  guacnet:
+    driver: bridge
+
+volumes:
+  console-hostkeys:
