@@ -1,6 +1,6 @@
 {
   "name": "guacd-ts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript library for bridging WebSocket connections to Apache Guacamole guacd daemon",
   "license": "Apache-2.0",
   "author": "YasushiMatsumoto",
@@ -27,7 +27,11 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol-types/index.d.ts"
     }
   },
   "files": [

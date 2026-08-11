@@ -15,6 +15,7 @@ Supports RDP, VNC, SSH, and Telnet. Works with Express, Fastify, or any Node.js 
 - [Install](#install)
 - [Quick Start](#quick-start)
 - [Protocol Builders](#protocol-builders)
+- [Protocol Parameter Types](#protocol-parameter-types)
 - [Tickets](#tickets)
 - [Hooks](#hooks)
 - [Connection Management](#connection-management)
@@ -34,6 +35,7 @@ Supports RDP, VNC, SSH, and Telnet. Works with Express, Fastify, or any Node.js 
 - **Statistics** — Track bytes transferred, session duration, and custom metadata per connection.
 - **Pluggable storage** — Built-in in-memory store, or bring your own (Redis, database, etc.).
 - **Protocol builders** — Fluent, validated API for RDP, VNC, SSH, and Telnet settings.
+- **Type-only protocol params export** — Import connection parameter types from `guacd-ts/protocol` for Node.js or browser-side type-checking with no runtime dependency.
 
 ## Connection Flow
 
@@ -165,6 +167,44 @@ const telnet = createConnectionBuilder('telnet').setHostname('192.168.1.100').bu
 
 await guac.issueTicket(rdp.settings);
 ```
+
+## Protocol Parameter Types
+
+Use `guacd-ts/protocol` when you need protocol parameter type definitions without importing runtime APIs.
+
+```typescript
+import { GuacamoleServer } from 'guacd-ts';
+import type {
+  RdpConnectionParameters,
+  SshConnectionParameters,
+  ConnectionParameters,
+} from 'guacd-ts/protocol';
+
+const rdpParams: RdpConnectionParameters = {
+  hostname: '192.168.1.100',
+  port: 3389,
+  username: 'Administrator',
+  security: 'nla',
+  ignoreCert: true,
+  width: 1920,
+  height: 1080,
+};
+
+const sshParams: SshConnectionParameters = {
+  hostname: '192.168.1.20',
+  username: 'ops',
+  terminalType: 'xterm-256color',
+  colorScheme: 'gray-black',
+};
+
+const params: ConnectionParameters = Math.random() > 0.5 ? rdpParams : sshParams;
+```
+
+Notes:
+
+- These are type-only exports (`import type`) for compile-time validation.
+- Property names use camelCase (for example, `ignoreCert`, `colorDepth`, `terminalType`).
+- The main runtime API remains under `guacd-ts`.
 
 ## Tickets
 
@@ -349,8 +389,8 @@ import type { ILogger } from 'guacd-ts';
 const p = pino();
 const logger: ILogger = {
   error: (msg, ctx) => p.error(ctx ?? {}, msg),
-  warn:  (msg, ctx) => p.warn(ctx ?? {}, msg),
-  info:  (msg, ctx) => p.info(ctx ?? {}, msg),
+  warn: (msg, ctx) => p.warn(ctx ?? {}, msg),
+  info: (msg, ctx) => p.info(ctx ?? {}, msg),
   debug: (msg, ctx) => p.debug(ctx ?? {}, msg),
   verbose: (msg, ctx) => p.trace(ctx ?? {}, msg),
 };

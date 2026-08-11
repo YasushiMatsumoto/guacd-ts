@@ -35,22 +35,6 @@ export {
   parseConnectionString,
 } from './protocols/utils';
 
-// -- Protocol types -------------------------------------------------------
-export type {
-  BaseConnectionParams,
-  GraphicalConnectionParams,
-  TerminalConnectionParams,
-  SFTPParams,
-  RDPConnectionParams,
-  VNCConnectionParams,
-  SSHConnectionParams,
-  TelnetConnectionParams,
-  ProtocolConnectionParams,
-  ValidationResult,
-  TerminalColorScheme,
-} from './protocols/types';
-export { DEFAULT_PORTS } from './protocols/types';
-
 // -- Shared types ---------------------------------------------------------
 export type {
   ProtocolType,
